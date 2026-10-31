@@ -17,7 +17,7 @@ permissions:
 
 env:
   SOLUTION_FILE: vs.proj/nppColdFusion.sln
-  CONFIGURATION: Unicode Release
+  CONFIGURATION: Release
   PLATFORM: x64
 
 jobs:
@@ -31,6 +31,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Generate autocomplete data from YAML
+        run: python scripts/generate_autocomplete.py
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -55,15 +66,13 @@ jobs:
 
       - name: Verify build outputs
         run: |
-          $dllPath = "vs.proj\x64\${{ env.CONFIGURATION }}\nppColdFusion.dll"
+          $dllPath = "vs.proj\x64\Unicode ${{ env.CONFIGURATION }}\nppColdFusion.dll"
           $xmlPath = "src\nppColdFusion.xml"
           $db3Path = "src\nppColdFusion.db3"
-          $sqlitePath = "extern\sqlite3\x64\sqlite3.dll"
 
           if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
           if (-not (Test-Path $xmlPath)) { Write-Error "XML not found at $xmlPath"; exit 1 }
           if (-not (Test-Path $db3Path)) { Write-Error "DB3 not found at $db3Path"; exit 1 }
-          if (-not (Test-Path $sqlitePath)) { Write-Error "sqlite3.dll not found at $sqlitePath"; exit 1 }
 
           Write-Host "All artifacts found"
 
@@ -77,27 +86,11 @@ jobs:
           $artifactDir = "dist\${version}"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
-          Copy-Item "vs.proj\x64\${{ env.CONFIGURATION }}\nppColdFusion.dll" "$artifactDir\nppColdFusion.dll"
+          Copy-Item "vs.proj\x64\Unicode ${{ env.CONFIGURATION }}\nppColdFusion.dll" "$artifactDir\nppColdFusion.dll"
           Copy-Item "src\nppColdFusion.xml" "$artifactDir\nppColdFusion.xml"
           Copy-Item "src\nppColdFusion.db3" "$artifactDir\nppColdFusion.db3"
-          Copy-Item "extern\sqlite3\x64\sqlite3.dll" "$artifactDir\sqlite3.dll"
 
-          $installText = @"
-nppColdFusion ${version} - Installation Instructions
-====================================================
-
-1. Create folder: %ProgramFiles%\Notepad++\plugins\nppColdFusion\
-2. Copy nppColdFusion.dll to that folder
-3. Copy nppColdFusion.xml and nppColdFusion.db3 to:
-   %AppData%\Notepad++\plugins\config\
-4. Ensure sqlite3.dll is in your PATH or next to notepad++.exe
-   (copy sqlite3.dll to Notepad++ installation folder)
-
-For Portable Notepad++:
-  Copy nppColdFusion.dll to <Notepad++>\plugins\nppColdFusion\
-  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\plugins\config\
-  Copy sqlite3.dll to <Notepad++>\ (next to notepad++.exe)
-"@
+          $installText = "nppColdFusion $version - Installation Instructions`n====================================================`n`n1. Create folder: %ProgramFiles%\Notepad++\plugins\nppColdFusion\`n2. Copy nppColdFusion.dll to that folder`n3. Copy nppColdFusion.xml and nppColdFusion.db3 to:`n   %AppData%\Notepad++\plugins\config\`n`nFor Portable Notepad++:`n  Copy nppColdFusion.dll to <Notepad++>\plugins\nppColdFusion\`n  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\plugins\config\"
           Set-Content "$artifactDir\INSTALL.txt" -Encoding UTF8 -Value $installText
 
           Write-Host "Artifacts prepared in $artifactDir"
@@ -122,7 +115,7 @@ For Portable Notepad++:
             **Notepad++ ColdFusion/CFML Lexer Plugin** for x64 (Notepad++ 8+)
 
             ### Installation
-            1. Download `nppColdFusion.dll`, `nppColdFusion.xml`, `nppColdFusion.db3`, `sqlite3.dll` from Assets below
+            1. Download `nppColdFusion.dll`, `nppColdFusion.xml`, `nppColdFusion.db3` from Assets below
             2. See `INSTALL.txt` for detailed instructions
 
             ### Changes
@@ -133,7 +126,6 @@ For Portable Notepad++:
             dist/${{ github.ref_name }}/nppColdFusion.dll
             dist/${{ github.ref_name }}/nppColdFusion.xml
             dist/${{ github.ref_name }}/nppColdFusion.db3
-            dist/${{ github.ref_name }}/sqlite3.dll
             dist/${{ github.ref_name }}/INSTALL.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

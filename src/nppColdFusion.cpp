@@ -25,8 +25,15 @@ namespace lex = nppColdFusionNS;				//  This lexer's namespace.
 using namespace nppColdFusionNS;
 const Lexilla::CharacterSet setTagContinue(Lexilla::CharacterSet::setAlphaNum, ".-_:!#[", 0x80, true);
 
-static char* nppColdFusionNS::LexerName() {
-	return const_cast<char*>(nppColdFusionNS::LEXER_NAME);
+static const char* nppColdFusionNS::LexerName() {
+#ifdef UNICODE
+	// Convert wide string to UTF-8 for Lexilla API
+	static char utf8Name[64];
+	wcstombs_s(nullptr, utf8Name, sizeof(utf8Name), nppColdFusionNS::LEXER_NAME, _TRUNCATE);
+	return utf8Name;
+#else
+	return nppColdFusionNS::LEXER_NAME;
+#endif
 }
 
 LexerColdFusion::LexerColdFusion() {
@@ -247,7 +254,7 @@ void SCI_METHOD LexerColdFusion::Fold(Sci_PositionU startPos, Sci_Position lengt
 					tagCF[tagCFpos] = ' ';
 					tagCF[tagCFpos + 1] = '\0';
 					nppCFShared& ref = *nppCFShared::Instance();
-					if (chPrev != '/' && strstr("meta link img area br hr input cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam ", tagCF) == NULL && !cfs->coldfusionNS->isCustomTag(tagCF)) {
+					if (chPrev != '/' && strstr("meta link img area br hr input cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam cfwebsocket cfclient cfpdfform cfpdfformparam cfpdfsubform", tagCF) == NULL && !cfs->coldfusionNS->isCustomTag(tagCF)) {
 						if (tagCFClosing) {
 							levelNext--;
 						}
@@ -380,17 +387,17 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 
 	status.openTagsBuffer[0] = '\0';
 
-	boost::shared_ptr<BlockType> cfqueryblock(new CFQueryBlock);
-	boost::shared_ptr<BlockType> cssblock(new CSSBlock);
-	boost::shared_ptr<BlockType> jsblock(new JSBlock);
-	boost::shared_ptr<BlockType> cfscriptblock(new CFScriptBlock);
+	std::shared_ptr<BlockType> cfqueryblock = std::make_shared<CFQueryBlock>();
+	std::shared_ptr<BlockType> cssblock = std::make_shared<CSSBlock>();
+	std::shared_ptr<BlockType> jsblock = std::make_shared<JSBlock>();
+	std::shared_ptr<BlockType> cfscriptblock = std::make_shared<CFScriptBlock>();
 
 	static const int cfquery = 0;
 	static const int cfscript = 1;
 	static const int js = 2;
 	static const int css = 3;
 
-	std::vector<boost::shared_ptr<BlockType>> blocks;
+	std::vector<std::shared_ptr<BlockType>> blocks;
 
 	blocks.push_back(cfqueryblock);
 	blocks.push_back(cfscriptblock);
@@ -482,8 +489,8 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 						sc.SetState(sID::_DEFAULT);
 					}
 					linestate = styler.GetLineState(currentLine);
-					for (std::vector<boost::shared_ptr<BlockType>>::iterator thisblock = blocks.begin(); thisblock != blocks.end(); ++thisblock) {
-						(*thisblock)->updatelinestate(linestate);
+					for (auto& thisblock : blocks) {
+						thisblock->updatelinestate(linestate);
 
 					}
 					styler.SetLineState(currentLine, linestate);
@@ -843,10 +850,10 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 						blocks[cfquery]->inBlock = inCFQuery;
 						blocks[js]->inBlock = inJSBlock;
 						blocks[css]->inBlock = inCSSBlock;
-						for (std::vector<boost::shared_ptr<BlockType>>::iterator thisblock = blocks.begin(); thisblock != blocks.end(); ++thisblock) {
-							if ((*thisblock)->inBlock &&
-								(*thisblock)->validateforkeyword(sc, inCFSet)) {
-								if ((*thisblock)->hasReservedWord(s)) {
+						for (auto& thisblock : blocks) {
+							if (thisblock->inBlock &&
+								thisblock->validateforkeyword(sc, inCFSet)) {
+								if (thisblock->hasReservedWord(s)) {
 									int statebefore = sc.state;
 									if (dostyling) {
 										sc.SetState(sID::CFS_RESERVED);
@@ -906,7 +913,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 									handledkeyword = true;
 									break;
 								}
-								else 	if ((*thisblock)->hasOperator(s)) {
+								else 	if (thisblock->hasOperator(s)) {
 									int statebefore = sc.state;
 									if (dostyling) {
 										sc.SetState(sID::_OPERATOR);
@@ -919,11 +926,11 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 									handledkeyword = true;
 									break;
 								}
-								else if (((outsideeditingrange && styler.StyleAt(sc.currentPos) == (*thisblock)->getKeywordState()) ||
-									(*thisblock)->hasKeyword(s))) {
+								else if (((outsideeditingrange && styler.StyleAt(sc.currentPos) == thisblock->getKeywordState()) ||
+									thisblock->hasKeyword(s))) {
 									int statebefore = sc.state;
 									if (dostyling) {
-										sc.SetState((*thisblock)->getKeywordState());
+										sc.SetState(thisblock->getKeywordState());
 									}
 									sc.Forward(a - 1);
 									if (dostyling) {
@@ -1294,9 +1301,9 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 				//SparseState<std::string> rawSTNew(sc.currentPos);
 
 				auto j = strnlen_s(status.currentCFTag, sizeof(status.currentCFTag));
-				status.currentCFTag[j] = ' ';
-				status.currentCFTag[j + 1] = '\0';
-				if (strstr("cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cfelse cfelseif cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam ", status.currentCFTag) == NULL) {
+						status.currentCFTag[j] = ' ';
+						status.currentCFTag[j + 1] = '\0';
+						if (strstr("cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cfelse cfelseif cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam cfwebsocket cfclient cfpdfform cfpdfformparam cfpdfsubform", status.currentCFTag) == NULL) {
 					if (status.tagOpening) {
 						if (!dostyling) {
 							auto curlen = strnlen(status.openTagsBuffer, sizeof(status.openTagsBuffer));

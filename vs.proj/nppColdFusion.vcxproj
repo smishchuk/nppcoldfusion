@@ -124,6 +124,8 @@
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Unicode Release|Win32'">$(Platform)\$(Configuration)\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Unicode Release|Win32'">false</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Unicode Release|x64'">false</LinkIncremental>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Unicode Release|x64'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Unicode Release|x64'">$(Platform)\$(Configuration)\</IntDir>
    <!--  <OutDir Condition="'$(Configuration)|$(Platform)'=='ANSI Release|Win32'">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='ANSI Release|Win32'">$(Platform)\$(Configuration)\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='ANSI Release|Win32'">false</LinkIncremental>
@@ -157,7 +159,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
@@ -191,7 +193,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ModuleDefinitionFile>
@@ -228,7 +230,7 @@
       <AdditionalOptions>/PD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -265,7 +267,7 @@
       <LanguageStandard_C>stdc17</LanguageStandard_C>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\extern\sqlite3\x64\sqlite3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ModuleDefinitionFile>..\src\nppColdFusion_Plugin.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -275,7 +277,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <ImportLibrary>
       </ImportLibrary>
-      <AdditionalLibraryDirectories>..\..\extern\sqlite3\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>/VERBOSE %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -293,7 +295,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -319,7 +321,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -344,7 +346,7 @@
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
@@ -368,7 +370,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>..\..\sqlite3\sqlite3\x64\Debug\sqlite3;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ModuleDefinitionFile>../src/nppColdFusion_Plugin.def</ModuleDefinitionFile>
@@ -431,10 +433,10 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
- <!--    <Import Project="solution\packages\boost.1.83.0\build\boost.targets" Condition="Exists('solution\packages\boost.1.83.0\build\boost.targets')" />
-    <Import Project="solution\packages\boost_regex-vc143.1.83.0\build\boost_regex-vc143.targets" Condition="Exists('solution\packages\boost_regex-vc143.1.83.0\build\boost_regex-vc143.targets')" /> -->
-    <Import Project="packages\boost.1.84.0\build\boost.targets" Condition="Exists('packages\boost.1.84.0\build\boost.targets')" />
-  </ImportGroup>
+  <!--    <Import Project="solution\packages\boost.1.83.0\build\boost.targets" Condition="Exists('solution\packages\boost.1.83.0\build\boost.targets')" />
+      <Import Project="solution\packages\boost_regex-vc143.1.83.0\build\boost_regex-vc143.targets" Condition="Exists('solution\packages\boost_regex-vc143.1.83.0\build\boost_regex-vc143.targets')" /> -->
+  <!--    <Import Project="packages\boost.1.84.0\build\boost.targets" Condition="Exists('packages\boost.1.84.0\build\boost.targets')" /> -->
+    </ImportGroup>
   <!-- <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
@@ -447,6 +449,6 @@
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('packages\boost.1.84.0\build\boost.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\boost.1.84.0\build\boost.targets'))" />
+    <!-- <Error Condition="!Exists('packages\boost.1.84.0\build\boost.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\boost.1.84.0\build\boost.targets'))" /> -->
   </Target>
 </Project>

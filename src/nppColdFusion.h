@@ -28,13 +28,20 @@
 //#pragma once
 //#include "SparseState.h" ///
 #include "nppCFShared.h"
-#include <boost\algorithm\string\case_conv.hpp>
+#include <algorithm>
+#include <cctype>
+#ifdef UNICODE
+#define STRINGIFY(x) L##x
+#else
+#define STRINGIFY(x) x
+#endif
+
 namespace nppColdFusionNS
 {
-	constexpr const char* LEXER_NAME = "ColdFusion";
-	constexpr const char* PLUGIN_NAME = "nppColdFusion";
-	constexpr const char* PLUGIN_VERSION = "1.0.0";
-	constexpr const char* PLUGIN_STATUS_TEXT = "ColdFusion Lexer for Notepad++";
+	constexpr const TCHAR* LEXER_NAME = STRINGIFY("ColdFusion");
+	constexpr const TCHAR* PLUGIN_NAME = STRINGIFY("nppColdFusion");
+	constexpr const TCHAR* PLUGIN_VERSION = STRINGIFY("0.9.1");
+	constexpr const TCHAR* PLUGIN_STATUS_TEXT = STRINGIFY("ColdFusion Lexer for Notepad++");
 
 	typedef struct {
 		int value;
@@ -54,7 +61,7 @@ namespace nppColdFusionNS
 	class nppCFShared;
 	class Status;
 
-	inline static char* LexerName();
+	inline static const char* LexerName();
 
 
 
@@ -77,11 +84,11 @@ namespace nppColdFusionNS
 		}
 
 		void setName(const char* sName) {
-			name.assign(sName);
-			nameLowered.assign(sName);
-			boost::to_lower(nameLowered);
-
-		}
+				name.assign(sName);
+				nameLowered.assign(sName);
+				std::transform(nameLowered.begin(), nameLowered.end(), nameLowered.begin(),
+					[](unsigned char c){ return std::tolower(c); });
+			}
 
 	};
 	/*
