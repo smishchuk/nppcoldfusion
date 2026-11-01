@@ -17,6 +17,7 @@ permissions:
 
 env:
   SOLUTION_FILE: vs.proj/nppColdFusion.sln
+  PROJECT_FILE: vs.proj/nppColdFusion.vcxproj
   CONFIGURATION: Release
 
 jobs:
@@ -142,11 +143,11 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore "${{ env.SOLUTION_FILE }}"
 
-      - name: Build Win32 (x86)
+      - name: Build Win32 (project directly)
         run: |
-          msbuild "${{ env.SOLUTION_FILE }}" `
-            /p:Configuration="${{ env.CONFIGURATION }}" `
-            /p:Platform="x86" `
+          msbuild "${{ env.PROJECT_FILE }}" `
+            /p:Configuration="Unicode Release" `
+            /p:Platform="Win32" `
             /p:PlatformToolset=v143 `
             /p:WindowsTargetPlatformVersion=10.0 `
             /verbosity:minimal `
@@ -154,7 +155,7 @@ jobs:
 
       - name: Verify Win32 build outputs
         run: |
-          $dllPath = "vs.proj\\Win32\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll"
+          $dllPath = "vs.proj\\Win32\\Unicode Release\\nppColdFusion.dll"
           $xmlPath = "src\\nppColdFusion.xml"
           $db3Path = "src\\nppColdFusion.db3"
 
@@ -174,7 +175,7 @@ jobs:
           $artifactDir = "dist\\${version}\\win32"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
-          Copy-Item "vs.proj\\Win32\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll" "$artifactDir\\nppColdFusion.dll"
+          Copy-Item "vs.proj\\Win32\\Unicode Release\\nppColdFusion.dll" "$artifactDir\\nppColdFusion.dll"
           Copy-Item "src\\nppColdFusion.xml" "$artifactDir\\nppColdFusion.xml"
           Copy-Item "src\\nppColdFusion.db3" "$artifactDir\\nppColdFusion.db3"
 
