@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v1.0.0)'
+        description: 'Version tag (e.g., v0.9.1)'
         required: false
         type: string
 
@@ -66,9 +66,9 @@ jobs:
 
       - name: Verify build outputs
         run: |
-          $dllPath = "vs.proj\x64\Unicode ${{ env.CONFIGURATION }}\nppColdFusion.dll"
-          $xmlPath = "src\nppColdFusion.xml"
-          $db3Path = "src\nppColdFusion.db3"
+          $dllPath = "vs.proj\\x64\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll"
+          $xmlPath = "src\\nppColdFusion.xml"
+          $db3Path = "src\\nppColdFusion.db3"
 
           if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
           if (-not (Test-Path $xmlPath)) { Write-Error "XML not found at $xmlPath"; exit 1 }
@@ -83,15 +83,22 @@ jobs:
           if ($version -notmatch '^v\d+\.\d+\.\d+') {
             $version = "v$(git describe --tags --always --dirty)"
           }
-          $artifactDir = "dist\${version}"
+          $artifactDir = "dist\\${version}"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
-          Copy-Item "vs.proj\x64\Unicode ${{ env.CONFIGURATION }}\nppColdFusion.dll" "$artifactDir\nppColdFusion.dll"
-          Copy-Item "src\nppColdFusion.xml" "$artifactDir\nppColdFusion.xml"
-          Copy-Item "src\nppColdFusion.db3" "$artifactDir\nppColdFusion.db3"
+          Copy-Item "vs.proj\\x64\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll" "$artifactDir\\nppColdFusion.dll"
+          Copy-Item "src\\nppColdFusion.xml" "$artifactDir\\nppColdFusion.xml"
+          Copy-Item "src\\nppColdFusion.db3" "$artifactDir\\nppColdFusion.db3"
 
-          $installText = "nppColdFusion $version - Installation Instructions`n====================================================`n`n1. Create folder: %ProgramFiles%\Notepad++\plugins\nppColdFusion\`n2. Copy nppColdFusion.dll to that folder`n3. Copy nppColdFusion.xml and nppColdFusion.db3 to:`n   %AppData%\Notepad++\plugins\config\`n`nFor Portable Notepad++:`n  Copy nppColdFusion.dll to <Notepad++>\plugins\nppColdFusion\`n  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\plugins\config\"
-          Set-Content "$artifactDir\INSTALL.txt" -Encoding UTF8 -Value $installText
+          $installText = "nppColdFusion $version - Installation Instructions`n====================================================`n`n1. Create folder: %ProgramFiles%\\Notepad++\\plugins\\nppColdFusion\\`n2. Copy nppColdFusion.dll to that folder`n3. Copy nppColdFusion.xml and nppColdFusion.db3 to:`n   %AppData%\\Notepad++\\plugins\\config\\`n`nFor Portable Notepad++:`n  Copy nppColdFusion.dll to <Notepad++>\\plugins\\nppColdFusion\\`n  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\\plugins\\config\\"
+          Set-Content "$artifactDir\\INSTALL.txt" -Encoding UTF8 -Value $installText
+
+          # SHA256SUMS.txt (required for Plugin Admin)
+          $sha256 = @()
+          $sha256 += "nppColdFusion.dll $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.dll" | Select-Object -ExpandProperty Hash -First 1)"
+          $sha256 += "nppColdFusion.xml $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.xml" | Select-Object -ExpandProperty Hash -First 1)"
+          $sha256 += "nppColdFusion.db3 $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.db3" | Select-Object -ExpandProperty Hash -First 1)"
+          Set-Content "$artifactDir\\SHA256SUMS.txt" -Encoding UTF8 -Value ($sha256 -join "`n")
 
           Write-Host "Artifacts prepared in $artifactDir"
           Get-ChildItem $artifactDir
@@ -119,7 +126,7 @@ jobs:
             2. See `INSTALL.txt` for detailed instructions
 
             ### Changes
-            See [CHANGELOG.md](https://github.com/alsovdev/nppcoldfusion/blob/master/CHANGELOG.md)
+            See [CHANGELOG.md](https://github.com/smishchuk/nppcoldfusion/blob/master/CHANGELOG.md)
           draft: false
           prerelease: false
           files: |
@@ -127,6 +134,7 @@ jobs:
             dist/${{ github.ref_name }}/nppColdFusion.xml
             dist/${{ github.ref_name }}/nppColdFusion.db3
             dist/${{ github.ref_name }}/INSTALL.txt
+            dist/${{ github.ref_name }}/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -163,5 +171,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nppColdFusion-Win32-${{ env.CONFIGURATION }}
-          path: vs.proj\Win32\${{ env.CONFIGURATION }}\**
+          path: vs.proj\\Win32\\${{ env.CONFIGURATION }}\\**
           retention-days: 7
