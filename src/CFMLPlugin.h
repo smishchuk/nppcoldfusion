@@ -19,17 +19,19 @@
 #ifndef NPP_CFMLPLUGIN_H
 #define NPP_CFMLPLUGIN_H
 
-#include "core\NppPlugin.h"
+#include "core/NppPlugin.h"
 #include "nppColdFusion.h"
 #include "nppCFMenu.h"
 #include "CFFunctions.h"
+#include "Constants.h"
+#include <array>
 
 
 class CurrentCallTip
 {
 public:
 	int start;
-	int tipdelimiters[32];
+	std::array<int, nppColdFusionNS::Constants::TIP_DELIMITERS_SIZE> tipdelimiters{};
 	char * text;
 };
 
@@ -101,6 +103,8 @@ public:
 	void wrapCFDump();
 	void aboutDlg();
 	void wrapIn( const char * before, const char * after );
+	// XML auto-generation
+	void EnsureXmlConfigExists( const TCHAR* pluginConfigDir );
 protected:
 	// custom functions
 	void AutoBracketsFunc( int nBracketType );

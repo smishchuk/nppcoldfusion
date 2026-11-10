@@ -16,7 +16,7 @@
 //Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 #include "CFMLPlugin.h"
-///#include <boost/thread/thread.hpp> /// *** trying use sleep, but failed to build
+#include "Constants.h"
 //#include <Windows.h> //for Sleep only, this does work
 
 
@@ -49,7 +49,7 @@ CFMLPlugin::~CFMLPlugin()
 
 FuncItem* CFMLPlugin::nppGetFuncsArray(int* pnbFuncItems)
 {
-	//nppCFShared &cfs = *nppCFShared::Instance();
+	//nppCFShared &cfs = nppCFShared::Instance();
 
 	*pnbFuncItems = nppCFMenu::N_NBFUNCITEMS;
 	return nppCFMenu::arrFuncItems;
@@ -160,7 +160,7 @@ void CFMLPlugin::nppBeNotified(SCNotification* notifyCode)
 		// <<< notifications from Notepad++
 	}
 	else {
-		nppCFShared& cfs = *nppCFShared::Instance();
+		nppCFShared& cfs = nppCFShared::Instance();
 
 		// >>> notifications from Scintilla
 		switch (notifyCode->nmhdr.code) {
@@ -202,9 +202,9 @@ void CFMLPlugin::OnNppFileSaved()
 }
 void CFMLPlugin::OnNppReady()
 {
-	//ReadOptions();
-	//CXBracketsMenu::UpdateMenuState();
-	//UpdateFileType();
+	// ReadOptions();
+	// CXBracketsMenu::UpdateMenuState();
+	// UpdateFileType();
 
 	if (isNppWndUnicode) {
 		nppOriginalWndProc = (WNDPROC)SetWindowLongPtrW(
@@ -215,7 +215,7 @@ void CFMLPlugin::OnNppReady()
 			m_nppMsgr.getNppWnd(), GWLP_WNDPROC, (LONG_PTR)nppNewWndProc);
 	}
 
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 	int a = cfs.m_nppMsgr.SendNppMsg(NPPM_MSGTOPLUGIN, (WPARAM)_T("FingerText.dll"), (LPARAM)true);
 	if (a) {
 		cfs.isFingerTextInstalled = true;
@@ -223,6 +223,10 @@ void CFMLPlugin::OnNppReady()
 	else {
 		cfs.isFingerTextInstalled = false;
 	}
+	
+	// Auto-generate XML config if missing (Notepad++ requires XML for lexer plugins)
+	EnsureXmlConfigExists(cfs.plugindir);
+
 	nppCFMenu::updateMenu();
 	cfs.nppReady = true;
 }
@@ -231,7 +235,7 @@ void CFMLPlugin::OnNppReady()
 
 void CFMLPlugin::OnNppShutdown()
 {
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 	if (nppOriginalWndProc) {
 		if (isNppWndUnicode) {
 			::SetWindowLongPtrW(m_nppMsgr.getNppWnd(),
@@ -317,7 +321,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 	// We need to check to see if the lexer is currently "aware" of this buffer - that is -
 	// if the lexer has not been run, then in theory the buffer id we store should not be the
 	// same, this essentially means any files that use the lexer can have the auto complete
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 	int currentbuffid = cfs.m_nppMsgr.getCurrentBufferID();
 	LexerColdFusion* lexer = cfs.getLexerForDoc(currentbuffid);
 	// If N++'s current buffer id doesn't match the lexer one then don't go any further.
@@ -325,8 +329,12 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 		return;
 	}
 
-
-	CSciMessager sciMsgr(m_nppMsgr.getCurrentScintillaWnd());
+	// Safety check: scintilla window may not be ready on startup
+	HWND scintillaWnd = m_nppMsgr.getCurrentScintillaWnd();
+	if (!scintillaWnd) {
+		return;
+	}
+	CSciMessager sciMsgr(scintillaWnd);
 
 	bool activeac = sciMsgr.isAutoCActive();
 
@@ -362,7 +370,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 	char wordstartchar = sciMsgr.getCharAt(wordstart - 1);
 	CFUserFunction func = lexer->cfUserFunctions.ValueAt(currentpos);
 
-	if (!inCFSet && (status.tagOpening == true || style == Styles::_TAG || style == Styles::CF_TAG || style == Styles::CF_ATTRIBUTEBAD || (style == Styles::_DOUBLESTRING && status.currentCFTag[0] != 0))) {
+	if (!inCFSet && (status.tagOpening == true || style == Styles::_TAG || style == Styles::CF_TAG || style == Styles::CF_ATTRIBUTEBAD || (style == Styles::_DOUBLESTRING && status.currentCFTag[0] != '\0'))) {
 
 
 		int charssince = currentpos - wordstart;
@@ -376,23 +384,23 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 			int searchpos = sciMsgr.SendSciMsg(SCI_WORDSTARTPOSITION, (WPARAM)wordstart - 2, (LPARAM)true);
 
 			int j = 0;
-			char previousword[512];
+			char previousword[Constants::OPEN_TAGS_BUFFER_SIZE];
 			for (int i = searchpos; i < searchstartpos; i++) {
 				previousword[j++] = (char) ::CharLowerA((LPSTR)sciMsgr.getCharAt(i));
 			}
 			previousword[j++] = '\0';
 
-			if (status.tagOpening == true && (status.currentCFTag[0] != 0 || status.currentHTMLTag[0] != 0)) {
-						char tagName[100];
-						strncpy_s(tagName, status.currentCFTag, 100);
+			if (status.tagOpening == true && (status.currentCFTag[0] != '\0' || status.currentHTMLTag[0] != '\0')) {
+						char tagName[Constants::MAX_TAG_LENGTH];
+						strncpy_s(tagName, status.currentCFTag.data(), Constants::MAX_TAG_LENGTH);
 
 						const char* expanded;
-						if (status.currentHTMLTag[0] != 0) {
-							strncpy_s(tagName, status.currentHTMLTag, 100);
-							expanded = cfs.htmlNS->listAttributeValues(tagName, previousword);
+						if (status.currentHTMLTag[0] != '\0') {
+							strncpy_s(tagName, status.currentHTMLTag.data(), Constants::MAX_TAG_LENGTH);
+							expanded = cfs.htmlNS->listAttributeValues(tagName, previousword).data();
 						}
 						else {
-							expanded = cfs.coldfusionNS->listAttributeValues(tagName, previousword);
+							expanded = cfs.coldfusionNS->listAttributeValues(tagName, previousword).data();
 						}
 						if (cfs.completeCFsqltype && charssince == 0 && strcmp(previousword, "cfsqltype") == 0) {
 							sciMsgr.SendSciMsg(SCI_ADDTEXT, (WPARAM)7, (LPARAM)"cf_sql_");
@@ -411,8 +419,8 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 		}
 		else if (wordstartchar == ' ' && prevch != '>') {
 
-			char wordtooffer[100];
-			char tagName[100];
+			char wordtooffer[Constants::MAX_TAG_LENGTH];
+			char tagName[Constants::MAX_TAG_LENGTH];
 
 			wordtooffer[0] = '\0';
 
@@ -476,7 +484,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 			int searchpos = sciMsgr.SendSciMsg(SCI_WORDSTARTPOSITION, (WPARAM)currentpos - 1, (LPARAM)true);
 
 			int j = 0;
-			char previousword[512];
+			char previousword[Constants::OPEN_TAGS_BUFFER_SIZE];
 			for (int i = searchpos; i < searchstartpos; i++) {
 				previousword[j++] = (char) ::CharLowerA((LPSTR)sciMsgr.getCharAt(i));
 			}
@@ -528,7 +536,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 
 				if (charssince > 1 && charssince < 15) {
 								char sqkw_copy[2048];
-								strncpy_s(sqkw_copy, cfs.sqlNS->listAllKeywords(), sizeof(sqkw_copy));
+								strncpy_s(sqkw_copy, cfs.sqlNS->listAllKeywords().data(), sizeof(sqkw_copy));
 								::CharUpperA(sqkw_copy);
 								sciMsgr.SendSciMsg(SCI_AUTOCSETFILLUPS, (WPARAM)0, (LPARAM)"");
 								sciMsgr.autoCSetIgnoreCase(true);
@@ -545,14 +553,14 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 				int searchpos = sciMsgr.SendSciMsg(SCI_WORDSTARTPOSITION, (WPARAM)wordstart - 1, (LPARAM)true);
 
 				int j = 0;
-				char previousword[512];
+				char previousword[Constants::OPEN_TAGS_BUFFER_SIZE];
 				for (int i = searchpos; i < searchstartpos; i++) {
 					previousword[j++] = (char) ::CharLowerA((LPSTR)sciMsgr.getCharAt(i));
 				}
 				previousword[j++] = '\0';
 
 				if (strcmp(previousword, "arguments") == 0) {
-					std::string arguments = func.getArgumentssSorted("?1");
+				std::string arguments = func.getArgumentsSorted("?1");
 					sciMsgr.SendSciMsg(SCI_AUTOCSETFILLUPS, (WPARAM)0, (LPARAM)"");
 					sciMsgr.autoCSetIgnoreCase(true);
 					sciMsgr.autoCSetSeparator(space);
@@ -575,8 +583,8 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 				int charssince = currentpos - wordstart;
 
 				if (charssince > 1 && charssince < 15) {
-					const char* cff = cfs.coldfusionNS->listAllKeywords(false, true);
-					const char* cffl = cfs.coldfusionNS->listAllKeywords(true);
+					const char* cff = cfs.coldfusionNS->listAllKeywords(false, true).data();
+					const char* cffl = cfs.coldfusionNS->listAllKeywords(true).data();
 					const char* loweredword;
 					char thisword[20];
 					int a = 0;
@@ -612,7 +620,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 				int charssince = currentpos - wordstart;
 
 				if (charssince > 1 && charssince < 15) {
-					const char* sqkw = cfs.javascriptNS->listAllKeywords();
+					const char* sqkw = cfs.javascriptNS->listAllKeywords().data();
 					sciMsgr.SendSciMsg(SCI_AUTOCSETFILLUPS, (WPARAM)0, (LPARAM)"");
 					sciMsgr.autoCSetIgnoreCase(true);
 					sciMsgr.autoCSetSeparator(space);
@@ -656,16 +664,23 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 
 				if (firstch == '/') {
 					bool foundtag = false;
-					char wordtooffer[100];
+					char wordtooffer[Constants::MAX_TAG_LENGTH];
 					wordtooffer[0] = '\0';
 					Status statustag = lexer->Colourise_Doc(currentpos - pos, pos, sciMsgr.getStyleAt(currentpos - pos), astyler, false);
 
-					if (statustag.currentopenTag > 0) {
-						strcpy_s(wordtooffer, 100, &statustag.openTagsBuffer[statustag.openTagsPositions[status.currentopenTag - 1]]);
-						if (wordtooffer[strnlen(wordtooffer, 100) - 1] == ' ') {
-							wordtooffer[strnlen(wordtooffer, 100) - 1] = '\0';
-						}
-					}
+					if (statustag.currentOpenTag > 0) {
+								// Bounds check
+								size_t idx = statustag.currentOpenTag - 1;
+								if (idx < statustag.openTagsPositions.size()) {
+									size_t pos = statustag.openTagsPositions[idx];
+									if (pos < statustag.openTagsBuffer.size()) {
+										strcpy_s(wordtooffer, Constants::MAX_TAG_LENGTH, &statustag.openTagsBuffer[pos]);
+										if (wordtooffer[strnlen(wordtooffer, Constants::MAX_TAG_LENGTH) - 1] == ' ') {
+											wordtooffer[strnlen(wordtooffer, Constants::MAX_TAG_LENGTH) - 1] = '\0';
+										}
+									}
+								}
+							}
 					else {
 
 						int foldparentline = sciMsgr.SendSciMsg(SCI_GETFOLDPARENT, (WPARAM)line);
@@ -689,18 +704,32 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 						if (foundtag == true) {
 							Status statustag = lexer->Colourise_Doc(posstop, (tagendpos + 1) - posstop, sciMsgr.getStyleAt(posstop), astyler, false);
 
-							if (statustag.currentopenTag > 0) {
-								if (status.currentopenTag < 0) {
-									statustag.currentopenTag += status.currentopenTag;
-									statustag.openTagsBuffer[statustag.openTagsPositions[statustag.currentopenTag]] = '\0';
-								}
-								if (statustag.currentopenTag > 0) {
-									strcpy_s(wordtooffer, 100, &statustag.openTagsBuffer[statustag.openTagsPositions[statustag.currentopenTag - 1]]);
-									if (wordtooffer[strnlen(wordtooffer, 100) - 1] == ' ') {
-										wordtooffer[strnlen(wordtooffer, 100) - 1] = '\0';
-									}
-								}
-							}
+							if (statustag.currentOpenTag > 0) {
+											if (status.currentOpenTag < 0) {
+												statustag.currentOpenTag += status.currentOpenTag;
+												// Bounds check
+												size_t idx = statustag.currentOpenTag;
+												if (idx < statustag.openTagsPositions.size()) {
+													size_t pos = statustag.openTagsPositions[idx];
+													if (pos < statustag.openTagsBuffer.size()) {
+														statustag.openTagsBuffer[pos] = '\0';
+													}
+												}
+											}
+											if (statustag.currentOpenTag > 0) {
+												// Bounds check
+												size_t idx = statustag.currentOpenTag - 1;
+												if (idx < statustag.openTagsPositions.size()) {
+													size_t pos = statustag.openTagsPositions[idx];
+													if (pos < statustag.openTagsBuffer.size()) {
+														strcpy_s(wordtooffer, Constants::MAX_TAG_LENGTH, &statustag.openTagsBuffer[pos]);
+														if (wordtooffer[strnlen(wordtooffer, Constants::MAX_TAG_LENGTH) - 1] == ' ') {
+															wordtooffer[strnlen(wordtooffer, Constants::MAX_TAG_LENGTH) - 1] = '\0';
+														}
+													}
+												}
+											}
+										}
 							/*
 							int stophere = true;
 
@@ -728,7 +757,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 				else if (charssince > 1 && !inCFScript) {
 					if (firstch == 'c' && secndch == 'f') {
 						//WordList &cfkeywords = *cfs.wordlists[1];
-						const char* cfkw = cfs.coldfusionNS->listAllTags(true);
+						const char* cfkw = cfs.coldfusionNS->listAllTags(true).data();
 						//sciMsgr.SendSciMsg(SCI_AUTOCSETMAXHEIGHT, (WPARAM) 10);
 						int keytakeover = SCK_TAB + (SCMOD_SHIFT << 16);
 						sciMsgr.SendSciMsg(SCI_CLEARCMDKEY, (WPARAM)keytakeover);
@@ -745,7 +774,7 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 					}
 					else if (!inJSBlock && !inCFQuery) {
 						//WordList &htmlkeywords = *cfs.wordlists[0];
-						const char* htkw = cfs.htmlNS->listAllTags(true);
+						const char* htkw = cfs.htmlNS->listAllTags(true).data();
 						//sciMsgr.SendSciMsg(SCI_AUTOCSETMAXHEIGHT, (WPARAM) 10);
 						//sciMsgr.SendSciMsg(SCI_AUTOCSETFILLUPS, (WPARAM) 0, (LPARAM) ' ');
 						sciMsgr.SendSciMsg(SCI_REGISTERIMAGE, (WPARAM)1, (LPARAM)tags_blue);
@@ -803,7 +832,9 @@ void CFMLPlugin::OnSciCharAdded(int ch)
 }
 void CFMLPlugin::ResetShiftTab()
 {
-	CSciMessager sciMsgr(m_nppMsgr.getCurrentScintillaWnd());
+	HWND scintillaWnd = m_nppMsgr.getCurrentScintillaWnd();
+	if (!scintillaWnd) return;
+	CSciMessager sciMsgr(scintillaWnd);
 	int keytakeover = SCK_TAB + (SCMOD_SHIFT << 16);
 	sciMsgr.SendSciMsg(SCI_CLEARCMDKEY, (WPARAM)keytakeover);
 	sciMsgr.SendSciMsg(SCI_ASSIGNCMDKEY, (WPARAM)keytakeover, SCI_BACKTAB);
@@ -812,28 +843,28 @@ void CFMLPlugin::ResetShiftTab()
 void CFMLPlugin::OnSciAutoCSelection(int pos, const char* text)
 {
 
-
-	nppCFShared& cfs = *nppCFShared::Instance();
-	CSciMessager sciMsgr(m_nppMsgr.getCurrentScintillaWnd());
+	nppCFShared& cfs = nppCFShared::Instance();
+	HWND scintillaWnd = m_nppMsgr.getCurrentScintillaWnd();
+	if (!scintillaWnd) return;
+	CSciMessager sciMsgr(scintillaWnd);
 	const char* expanded;
 
-	expanded = cfs.coldfusionNS->listTagAttributes(text, true, cfs.isFingerTextInstalled && cfs.integrateWithFingerText, false);
+expanded = cfs.coldfusionNS->listTagAttributes(text, true, cfs.isFingerTextInstalled && cfs.integrateWithFingerText, false);
 
 	if (expanded != 0 && strlen(expanded) > 1) {
-		char* texttoinsert = new char[strlen(expanded) + strlen(text) + 2];
-		texttoinsert[0] = '\0';
+		// Use std::string to avoid manual memory management
+		std::string texttoinsert;
+		texttoinsert.reserve(strlen(expanded) + strlen(text) + 2);
 		int curpos = sciMsgr.getCurrentPos();
-		strcat_s(texttoinsert, strlen(expanded) + strlen(text) + 2, text + (curpos - pos));
-		strcat_s(texttoinsert, strlen(expanded) + strlen(text) + 2, " ");
-		//expanded[strlen(expanded)] = '\0';
-		strcat_s(texttoinsert, strlen(expanded) + strlen(text) + 2, expanded);
-		//
+		texttoinsert += text + (curpos - pos);
+		texttoinsert += ' ';
+		texttoinsert += expanded;
 
 		sciMsgr.SendSciMsg(SCI_AUTOCCANCEL);
 		sciMsgr.setSelectionStart(pos);
 		sciMsgr.setSelectionEnd(curpos);
 
-		sciMsgr.SendSciMsg(SCI_ADDTEXT, strlen(texttoinsert), (LPARAM)texttoinsert);
+		sciMsgr.SendSciMsg(SCI_ADDTEXT, texttoinsert.size(), (LPARAM)texttoinsert.c_str());
 		sciMsgr.goToPos(curpos);
 		if (cfs.isFingerTextInstalled && cfs.integrateWithFingerText) {
 			// We need to cancel the shift key so fingertext will activate
@@ -847,10 +878,10 @@ void CFMLPlugin::OnSciAutoCSelection(int pos, const char* text)
 		}
 
 	}
-	delete[] expanded;
 
-	/* TODO: maybe add proper indenting when closing tags etc */
-	/* NOTE: the below was a test for chaining autocompletes, which failed :( */
+	// DO NOT delete[] expanded - it points to internal cache, not heap memory
+	// TODO: maybe add proper indenting when closing tags etc
+	// NOTE: the below was a test for chaining autocompletes, which failed :(
 
 
 
@@ -890,7 +921,7 @@ void CFMLPlugin::OnSciAutoCSelection(int pos, const char* text)
 
 void CFMLPlugin::OnNppSetInfo(const NppData& notpadPlusData)
 {
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 	cfs.m_nppMsgr.setNppData(notpadPlusData);
 	//m_PluginMenu.setNppData(notpadPlusData);
 	isNppWndUnicode = ::IsWindowUnicode(notpadPlusData._nppHandle) ? true : false;
@@ -931,21 +962,25 @@ void CFMLPlugin::wrapCFDump()
 }
 void CFMLPlugin::aboutDlg()
 {
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 
 	::MessageBox(cfs.m_nppMsgr.getNppWnd(),
 		TEXT("nppColdFusion by Ben Bluemel\n")
-		TEXT("updated by Msyu from v0.8.1\n")
-		TEXT("http://bitbucket.org/bbluemel/nppcoldfusion/ - \n")
-		TEXT("(not available anymore)\n\n"),
+		TEXT("Fork by smishchuk (x64, Notepad++ 8+ Lexilla)\n")
+		TEXT("https://github.com/smishchuk/nppcoldfusion\n")
+		TEXT("Maintained by alsovdev\n")
+		TEXT("https://github.com/alsovdev/nppcoldfusion\n\n")
+		TEXT("Based on original by Ben Bluemel (ben1982@gmail.com)\n"),
 		nppColdFusionNS::PLUGIN_VERSION,
 		MB_OK);
 }
 void CFMLPlugin::wrapIn(const char* before, const char* after)
 {
-	nppCFShared& cfs = *nppCFShared::Instance();
+	nppCFShared& cfs = nppCFShared::Instance();
 
-	CSciMessager sciMsgr(cfs.m_nppMsgr.getCurrentScintillaWnd());
+	HWND scintillaWnd = cfs.m_nppMsgr.getCurrentScintillaWnd();
+	if (!scintillaWnd) return;
+	CSciMessager sciMsgr(scintillaWnd);
 
 	int startpos = sciMsgr.getSelectionStart();
 	int endpos = sciMsgr.getSelectionEnd();
@@ -967,3 +1002,75 @@ void CFMLPlugin::wrapIn(const char* before, const char* after)
 
 
 }
+
+// Ensure XML config file exists for Notepad++ lexer plugin
+// Notepad++ requires an XML file with the same name as the DLL in the plugins config directory
+void CFMLPlugin::EnsureXmlConfigExists(const TCHAR* pluginConfigDir)
+{
+	if (!pluginConfigDir || pluginConfigDir[0] == _T('\0')) {
+		return;
+	}
+
+	// Ensure the directory exists
+	CreateDirectory(pluginConfigDir, NULL);
+
+	TCHAR xmlPath[MAX_PATH];
+	_tcscpy_s(xmlPath, MAX_PATH, pluginConfigDir);
+	_tcscat_s(xmlPath, MAX_PATH, _T("\\nppColdFusion.xml"));
+
+	// Check if XML already exists
+	if (_taccess(xmlPath, 0) == 0) {
+		return; // XML exists, no need to generate
+	}
+
+	// Generate default XML from built-in styles
+	FILE* file = _tfopen(xmlPath, _T("w, ccs=UTF-8"));
+	if (!file) {
+		return; // Could not create file
+	}
+
+	// Write XML with default styles matching NamedStyles API
+	fprintf(file, "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n");
+	fprintf(file, "<NotepadPlus>\n");
+	fprintf(file, "    <Languages>\n");
+	fprintf(file, "        <Language name=\"ColdFusion\" ext=\"cfm cfc cfml\" commentStart=\"<!--\" commentEnd=\"-->\">\n");
+	fprintf(file, "            <Keywords name=\"0\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"1\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"2\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"3\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"4\">active after before first first-child first-letter first-line focus hover lang left link right visited</Keywords>\n");
+	fprintf(file, "            <Keywords name=\"5\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"6\"></Keywords>\n");
+	fprintf(file, "            <Keywords name=\"7\"></Keywords>\n");
+	fprintf(file, "        </Language>\n");
+	fprintf(file, "    </Languages>\n");
+	fprintf(file, "    <LexerStyles>\n");
+	fprintf(file, "        <LexerType name=\"ColdFusion\" desc=\"ColdFusion\" excluded=\"no\">\n");
+	fprintf(file, "            <WordsStyle name=\"DEFAULT\" styleID=\"0\" fgColor=\"000000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"1\" fontSize=\"\" keywordClass=\"0\" />\n");
+	fprintf(file, "            <WordsStyle name=\"TAG\" styleID=\"1\" fgColor=\"0000FF\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"0\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFTAG\" styleID=\"2\" fgColor=\"804000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"1\" />\n");
+	fprintf(file, "            <WordsStyle name=\"ATTRIBUTE\" styleID=\"3\" fgColor=\"0080C0\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"ATTRIBUTEUNKNOWN\" styleID=\"4\" fgColor=\"FF0000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"NUMBER\" styleID=\"5\" fgColor=\"FF8000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"DOUBLESTRING\" styleID=\"6\" fgColor=\"8000FF\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"1\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"SINGLESTRING\" styleID=\"7\" fgColor=\"8000FF\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"1\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"OPERATOR\" styleID=\"8\" fgColor=\"000080\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"1\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"COMMENT\" styleID=\"9\" fgColor=\"008000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"COMMENTBLOCK\" styleID=\"10\" fgColor=\"008000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFCOMMENT\" styleID=\"12\" fgColor=\"408080\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"2\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFVALUE\" styleID=\"13\" fgColor=\"FF8000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFFUNCTION\" styleID=\"14\" fgColor=\"808000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"2\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFATTRIBUTE\" styleID=\"15\" fgColor=\"800080\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFATTRIBUTEBAD\" styleID=\"16\" fgColor=\"FF0000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"LOCALVARS\" styleID=\"17\" fgColor=\"000000\" bgColor=\"F2F2F2\" fontName=\"\" fontStyle=\"1\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CFSRESERVED\" styleID=\"19\" fgColor=\"804000\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" />\n");
+	fprintf(file, "            <WordsStyle name=\"SQLKEYWORDS\" styleID=\"21\" fgColor=\"0000FF\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"6\" />\n");
+	fprintf(file, "            <WordsStyle name=\"JSKEYWORDS\" styleID=\"22\" fgColor=\"871F78\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"5\" />\n");
+	fprintf(file, "            <WordsStyle name=\"CSSKEYWORDS\" styleID=\"23\" fgColor=\"871F78\" bgColor=\"FFFFFF\" fontName=\"\" fontStyle=\"0\" fontSize=\"\" keywordClass=\"7\" />\n");
+	fprintf(file, "        </LexerType>\n");
+	fprintf(file, "    </LexerStyles>\n");
+	fprintf(file, "</NotepadPlus>\n");
+
+	fclose(file);
+}
+

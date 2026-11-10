@@ -3,11 +3,11 @@
 ![Build Status](https://github.com/alsovdev/nppcoldfusion/actions/workflows/build.yml/badge.svg)
 ![Latest Release](https://img.shields.io/github/v/release/alsovdev/nppcoldfusion)
 ![License](https://img.shields.io/github/license/alsovdev/nppcoldfusion)
-![Platform](https://img.shields.io/badge/platform-Windows%20x64-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-blue)
 
 ---
 
-**nppColdFusion** is a **Notepad++** plugin (x64, v8+) providing full **ColdFusion / CFML** support (`.cfm`, `.cfc`, `.cfml` files):
+**nppColdFusion** is a **Notepad++** plugin (x64, x86, v8+) providing full **ColdFusion / CFML** support (`.cfm`, `.cfc`, `.cfml` files):
 
 - ✅ **Syntax highlighting** — CF tags, CFScript, HTML, JavaScript, CSS, SQL (inside `<cfquery>`)
 - ✅ **Code folding** — CF tags (`<cfif>`/`</cfif>`), HTML tags, JS/CSS blocks, `{}` in CFScript
@@ -23,21 +23,39 @@
 
 ## 📥 Installation
 
-### Via Plugin Admin (recommended, once added to nppPluginList)
-
-1. Open **Plugins → Plugin Admin**
-2. Find **nppColdFusion**
-3. Install and restart Notepad++
-
 ### Manual (current way)
 
 1. Download artifacts from the latest [release](https://github.com/alsovdev/nppcoldfusion/releases/latest):
-   - `nppColdFusion.dll`
-   - `nppColdFusion.xml`
-   - `nppColdFusion.db3`
-2. Create folder: `%ProgramFiles%\Notepad++\plugins\nppColdFusion\`
-3. Copy `nppColdFusion.dll` there
-4. Copy `nppColdFusion.xml` and `nppColdFusion.db3` to: `%AppData%\Notepad++\plugins\config\`
+   - **x64** (Notepad++ 64-bit): `nppColdFusion-x64.dll`, `nppColdFusion.xml`, `INSTALL.txt`
+   - **x86** (Notepad++ 32-bit): `nppColdFusion-x86.dll`, `nppColdFusion.xml`, `INSTALL.txt`
+   - **Shared**: `SHA256SUMS.txt`
+
+2. **Rename the DLL** to match the plugin folder name:
+   - Rename `nppColdFusion-x64.dll` → `nppColdFusion.dll` (for x64)
+   - Rename `nppColdFusion-x86.dll` → `nppColdFusion.dll` (for x86)
+
+3. **Copy the DLL to the plugin folder** (create it if needed):
+   ```
+   %ProgramFiles%\Notepad++\plugins\nppColdFusion\nppColdFusion.dll
+   ```
+
+4. **Copy the XML to the AppData Config folder** (this is the ONLY working location for installed Notepad++):
+   ```
+   %APPDATA%\Notepad++\plugins\config\nppColdFusion.xml
+   ```
+
+> ⚠️ **Important: XML file location**
+>
+> Notepad++ searches for the lexer XML in **`plugins\Config\`** at load time — **not** next to the DLL.
+>
+> - **DLL** → `%ProgramFiles%\Notepad++\plugins\nppColdFusion\nppColdFusion.dll`
+> - **XML** → `%APPDATA%\Notepad++\plugins\config\nppColdFusion.xml` **(recommended, always works)**
+>
+> The `plugins\Config\` folder under Program Files requires admin rights to write. The AppData location is user-writable and works without elevation.
+>
+> **Note**: Since Notepad++ v8.9.3, N++ may automatically copy `*.model.xml` files from the installation directory to AppData on first run. If you place `nppColdFusion.xml` in `%ProgramFiles%\Notepad++\plugins\Config\`, it *might* be copied to AppData automatically — but this is not guaranteed for plugin lexer XMLs. The AppData path is the reliable choice.
+>
+> If you use portable Notepad++, place both files in `<Notepad++>\plugins\nppColdFusion\`.
 
 #### For Portable Notepad++
 
@@ -45,19 +63,30 @@
 <Notepad++>/
 ├── notepad++.exe
 └── plugins/
-    ├── nppColdFusion/
-    │   └── nppColdFusion.dll
-    └── config/
-        ├── nppColdFusion.xml
-        └── nppColdFusion.db3
+    └── nppColdFusion/
+        ├── nppColdFusion.dll
+        └── nppColdFusion.xml
+```
+
+### Verify Installation
+
+1. Restart Notepad++
+2. Open **Plugins → nppColdFusion → About** — should show version (e.g., `v0.9.6`)
+3. Open a `.cfm` or `.cfc` file — syntax highlighting should activate automatically
+
+### Verify Integrity (optional)
+
+Check `SHA256SUMS.txt` from the release:
+```cmd
+certutil -hashfile nppColdFusion.dll SHA256
 ```
 
 ---
 
 ## 🖥 Requirements
 
-- **Notepad++ 8.0+** (x64)
-- **Windows 10/11** (x64)
+- **Notepad++ 8.0+** (x64 or x86)
+- **Windows 10/11** (x64 or x86)
 - **Visual C++ Redistributable 2015-2022** (usually already installed)
 
 ---
@@ -78,11 +107,11 @@ cd nppcoldfusion
 # Generate autocomplete data from YAML
 python scripts/generate_autocomplete.py
 # Open vs.proj\nppColdFusion.sln in Visual Studio 2022
-# Select config: Unicode Release | x64
+# Select config: Unicode Release | x64  (or Win32 for x86)
 # Build → Build Solution
 ```
 
-Artifacts will appear in `vs.proj\x64\Release\`.
+Artifacts will appear in `vs.proj\x64\Unicode Release\` (or `Win32\Unicode Release\`).
 
 ### Automated Build (CI)
 
@@ -100,7 +129,7 @@ See [CHANGELOG.md](CHANGELOG.md) / [История изменений](CHANGELOG
 
 **GNU General Public License v2.0 or later** — see [LICENSE](LICENSE)
 
-Original author: **Ben Bluemel** (2011), email: ben1982@gmail.com  
+Original author: **Ben Bluemel** (2011), email: ben1982@gmail.com
 Current maintainer: **smishchuk** — fork for x64 and Notepad++ 8+ (Lexilla API)
 
 ---

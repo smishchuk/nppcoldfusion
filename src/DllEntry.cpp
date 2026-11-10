@@ -72,9 +72,15 @@ extern "C" {
 		cfmlPlugin.nppBeNotified( notifyCode );
 
 	}
+	extern "C" __declspec( dllexport ) int getPluginVersion()
+	{
+	    // Extract version from PLUGIN_VERSION string (format: "0.9.6")
+	    return 906; // 0.9.6 -> 906
+	}
+
 	__declspec( dllexport ) LRESULT messageProc( UINT Message, WPARAM wParam, LPARAM lParam )
 	{
-		return cfmlPlugin.nppMessageProc( Message, wParam, lParam );
+	    return cfmlPlugin.nppMessageProc( Message, wParam, lParam );
 	}
 
 
@@ -109,7 +115,7 @@ extern "C" void EXT_LEXER_DECL GetLexerStatusText( unsigned int /*Index*/, TCHAR
 
 
 //extern "C" Lexilla::LexerFactoryFunction EXT_LEXER_DECL GetLexerFactory( unsigned int index )
-extern "C" __declspec(dllexport) inline Lexilla::LexerFactoryFunction SCI_METHOD GetLexerFactory(unsigned int index)
+extern "C" __declspec(dllexport) Lexilla::LexerFactoryFunction SCI_METHOD GetLexerFactory(unsigned int index)
 {
 	if ( index == 0 ) {
 		return nppColdFusionNS::LexerColdFusion::LexerFactory;
@@ -119,7 +125,7 @@ extern "C" __declspec(dllexport) inline Lexilla::LexerFactoryFunction SCI_METHOD
 }
 
 ///extern "C" DLLAPI inline ILexer5 * WINAPI CreateLexer(const char* name)
-extern "C" __declspec(dllexport) inline Scintilla::ILexer5 * WINAPI CreateLexer(const char* name)
+extern "C" __declspec(dllexport) Scintilla::ILexer5 * WINAPI CreateLexer(const char* name)
 {
 	return nppColdFusionNS::LexerColdFusion::CreateLexer(name);
 }

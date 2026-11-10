@@ -18,26 +18,76 @@
 
 
 #include "nppColdFusion.h"
-#include "DllEntry.h" ///*** 
+#include "DllEntry.h"
+#include "Constants.h"
+#include <unordered_set>
+#include <string_view> ///*** 
 namespace sID = nppColdFusionNS::Styles;		//  All of the style state codes.
 namespace lex = nppColdFusionNS;				//  This lexer's namespace.
 
 using namespace nppColdFusionNS;
 const Lexilla::CharacterSet setTagContinue(Lexilla::CharacterSet::setAlphaNum, ".-_:!#[", 0x80, true);
 
-static const char* nppColdFusionNS::LexerName() {
+// Static tag sets for O(1) lookup instead of strstr
+static const std::unordered_set<std::string_view> CF_SINGLE_TAGS = {
+    "meta", "link", "img", "area", "br", "hr", "input",
+    "cfabort", "cfajaximport", "cfajaxproxy", "cfapplet",
+    "cfapplication", "cfargument", "cfassociate", "cfbreak",
+    "cfcache", "cfcalendar", "cfchartdata", "cfchartseries",
+    "cfcol", "cfcollection", "cfcontent", "cfcontinue",
+    "cfcookie", "cfdbinfo", "cfdirectory", "cfdiv",
+    "cfdump", "cferror", "cfexchangecalendar", "cfexchangeconnection",
+    "cfexchangecontact", "cfexchangefilter", "cfexchangemail",
+    "cfexchangetask", "cfexit", "cffeed", "cffile",
+    "cfflush", "cfftp", "cfgridcolumn", "cfgridrow",
+    "cfgridupdate", "cfheader", "cfhtmlhead", "cfhttp",
+    "cfhttpparam", "cfimage", "cfimport", "cfinclude",
+    "cfindex", "cfinput", "cfinsert", "cfinvoke",
+    "cfinvokeargument", "cfldap", "cflocation", "cflog",
+    "cfloginuser", "cflogout", "cfmailparam", "cfmodule",
+    "cfntauthenticate", "cfobject", "cfobjectcache", "cfparam",
+    "cfpdf", "cfpdfformparam", "cfpdfparam", "cfpop",
+    "cfpresenter", "cfprint", "cfprocessingdirective", "cfprocparam",
+    "cfprocresult", "cfproperty", "cfqueryparam", "cfregistry",
+    "cfreport", "cfreportparam", "cfrethrow", "cfreturn",
+    "cfschedule", "cfsearch", "cfset", "cfsetting",
+    "cfsilent", "cfslider", "cfsprydataset", "cfstoredproc",
+    "cftextinput", "cfthrow", "cftrace", "cftreeitem",
+    "cfupdate", "cfwddx", "cfzip", "cfzipparam",
+    "cfwebsocket", "cfclient", "cfpdfform", "cfpdfformparam", "cfpdfsubform"
+};
+
+static const std::unordered_set<std::string_view> HTML_SINGLE_TAGS = {
+    "meta", "link", "img", "area", "br", "hr", "input"
+};
+
+static const std::unordered_set<std::string_view> CF_ELSE_TAGS = {
+    "cfelse", "cfelseif"
+};
+
+static const std::unordered_set<std::string_view> CF_IF_ELSE_TAGS = {
+    "cfif", "cfelse", "cfelseif"
+};
+
+
+namespace {
+    const std::string LEXER_NAME_UTF8 = []() {
 #ifdef UNICODE
-	// Convert wide string to UTF-8 for Lexilla API
-	static char utf8Name[64];
-	wcstombs_s(nullptr, utf8Name, sizeof(utf8Name), nppColdFusionNS::LEXER_NAME, _TRUNCATE);
-	return utf8Name;
+        char buffer[64];
+        wcstombs_s(nullptr, buffer, sizeof(buffer), nppColdFusionNS::LEXER_NAME, _TRUNCATE);
+        return std::string(buffer);
 #else
-	return nppColdFusionNS::LEXER_NAME;
+        return std::string(nppColdFusionNS::LEXER_NAME);
 #endif
+    }();
+}
+
+static const char* nppColdFusionNS::LexerName() {
+    return LEXER_NAME_UTF8.c_str();
 }
 
 LexerColdFusion::LexerColdFusion() {
-	cfs = nppCFShared::Instance();
+	cfs = &nppCFShared::Instance();
 	isScriptCFC = false;
 	hasDeterminedType = false;
 	sharedid = cfs->registerLexer(this);
@@ -55,7 +105,23 @@ LexerColdFusion::~LexerColdFusion() {
 
 static inline bool IsAWordChar(const int ch)
 {
-	return (ch < 0x80) && (isalnum(static_cast<unsigned char>(ch)) || ch == '.' || ch == '_');
+	// Allow ASCII alphanum, underscore, dot + Unicode letters (including Cyrillic)
+	// ch >= 0x80 includes most non-ASCII scripts (Cyrillic starts at 0x0400)
+	if (ch < 0x80) {
+		return isalnum(static_cast<unsigned char>(ch)) || ch == '.' || ch == '_';
+	}
+	// For Unicode, treat as word char if it's a letter (simplified: allow all >= 0x80 except control chars)
+	// This allows Cyrillic, Greek, etc. to be part of identifiers
+	return ch >= 0x80 && ch != 0xFFFD; // exclude replacement char
+}
+
+static inline int SafeMakeLowerCase(int ch)
+{
+	// Lexilla::MakeLowerCase only handles ASCII; for Unicode return as-is
+	if (ch < 0x80) {
+		return Lexilla::MakeLowerCase(ch);
+	}
+	return ch; // pass through Unicode unchanged
 }
 
 
@@ -116,7 +182,7 @@ void SCI_METHOD LexerColdFusion::Lex(Sci_PositionU startPos, Sci_Position length
 					}
 					else {
 						if (IsAWordChar(ch)) {
-							s[wordlength] = Lexilla::MakeLowerCase(ch); ///
+							s[wordlength] = SafeMakeLowerCase(ch); ///
 							if (s[wordlength] == component[wordlength]) {
 								wordlength++;
 								if (wordlength >= 9) {
@@ -162,11 +228,10 @@ void SCI_METHOD LexerColdFusion::Lex(Sci_PositionU startPos, Sci_Position length
 			astyler.StartAt(0);
 			return;
 		}
-		if (hasDeterminedType || inScriptComment || inScriptLineComment || closingcomment) {
-			Colourise_Doc(startPos, length, initStyle, astyler);
-			astyler.Flush();
-
-		}
+		// Always colourise if we have a valid document, not just when type is determined
+		// This ensures syntax highlighting works on startup with files already open
+		Colourise_Doc(startPos, length, initStyle, astyler);
+		astyler.Flush();
 	}
 	catch (...) {
 		// Should not throw into caller as may be compiled with different compiler or options
@@ -250,19 +315,19 @@ void SCI_METHOD LexerColdFusion::Fold(Sci_PositionU startPos, Sci_Position lengt
 					tagCFcomplete = true;
 				}
 				else if (ch == '>') {
-					tagCFcomplete = true;
-					tagCF[tagCFpos] = ' ';
-					tagCF[tagCFpos + 1] = '\0';
-					nppCFShared& ref = *nppCFShared::Instance();
-					if (chPrev != '/' && strstr("meta link img area br hr input cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam cfwebsocket cfclient cfpdfform cfpdfformparam cfpdfsubform", tagCF) == NULL && !cfs->coldfusionNS->isCustomTag(tagCF)) {
-						if (tagCFClosing) {
+				                tagCFcomplete = true;
+				                tagCF[tagCFpos] = ' ';
+				                tagCF[tagCFpos + 1] = '\0';
+				                nppCFShared& ref = nppCFShared::Instance();
+				                if (chPrev != '/' && CF_SINGLE_TAGS.find(tagCF) == CF_SINGLE_TAGS.end() && !cfs->coldfusionNS->isCustomTag(tagCF)) {
+				                    if (tagCFClosing) {
 							levelNext--;
 						}
 						else {
-							if (strstr("cfelse cfelseif ", tagCF) != NULL) {
+							if (CF_ELSE_TAGS.find(tagCF) != CF_ELSE_TAGS.end()) {
 								levelNext--;
 							}
-							if (strstr("cfif cfelse cfelseif ", tagCF) != NULL) {
+							if (CF_IF_ELSE_TAGS.find(tagCF) != CF_IF_ELSE_TAGS.end()) {
 								if (levelMinCurrent > levelNext) {
 									levelMinCurrent = levelNext;
 								}
@@ -295,7 +360,7 @@ void SCI_METHOD LexerColdFusion::Fold(Sci_PositionU startPos, Sci_Position lengt
 					tagHTMLcomplete = true;
 					tagHTML[tagHTMLpos] = ' ';
 					tagHTML[tagHTMLpos + 1] = '\0';
-					if (chPrev != '/' && strstr("meta link img area br hr input ", tagHTML) == NULL) {
+					if (chPrev != '/' && HTML_SINGLE_TAGS.find(tagHTML) == HTML_SINGLE_TAGS.end()) {
 						if (tagHTMLClosing) {
 							levelNext--;
 						}
@@ -365,17 +430,34 @@ Sci_Position SCI_METHOD LexerColdFusion::WordListSet(int n, const char* wl)
 		auto wllength = strnlen_s(wl, 20480) + 1;
 		char* loweredwl = new char[wllength];
 		strcpy_s(loweredwl, wllength, wl);
-		loweredwl = CharLowerA(loweredwl);
+		// Use SafeMakeLowerCase for Unicode safety (CharLowerA only handles ASCII)
+		for (size_t i = 0; i < wllength - 1; ++i) {
+			loweredwl[i] = static_cast<char>(SafeMakeLowerCase(static_cast<unsigned char>(loweredwl[i])));
+		}
 		cfs->originallists[n] = new char[wllength];
 		cfs->loweredlists[n] = new char[wllength];
 		strcpy_s(cfs->loweredlists[n], wllength, loweredwl);
 		strcpy_s(cfs->originallists[n], wllength, wl);
-		delete[]loweredwl;
+		delete[] loweredwl;
 		return 0;
 	}
 
 	return -1;
 
+}
+
+const char* SCI_METHOD LexerColdFusion::DescribeWordListSets()
+{
+	// Word list sets for Notepad++ XML config:
+	// 0 = (unused)
+	// 1 = CF tags/functions
+	// 2 = (unused)
+	// 3 = (unused)
+	// 4 = CSS pseudo-classes
+	// 5 = JavaScript keywords
+	// 6 = SQL keywords
+	// 7 = CSS keywords/properties
+	return "CF Tags;CSS Pseudo-classes;JavaScript Keywords;SQL Keywords;CSS Keywords";
 }
 
 
@@ -385,17 +467,14 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 {
 	Status status = Status();
 
-	status.openTagsBuffer[0] = '\0';
+	status.openTagsBuffer.fill(0);
 
 	std::shared_ptr<BlockType> cfqueryblock = std::make_shared<CFQueryBlock>();
 	std::shared_ptr<BlockType> cssblock = std::make_shared<CSSBlock>();
 	std::shared_ptr<BlockType> jsblock = std::make_shared<JSBlock>();
 	std::shared_ptr<BlockType> cfscriptblock = std::make_shared<CFScriptBlock>();
 
-	static const int cfquery = 0;
-	static const int cfscript = 1;
-	static const int js = 2;
-	static const int css = 3;
+	using BlockId = BlockTypeId;
 
 	std::vector<std::shared_ptr<BlockType>> blocks;
 
@@ -403,6 +482,29 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 	blocks.push_back(cfscriptblock);
 	blocks.push_back(jsblock);
 	blocks.push_back(cssblock);
+
+	// Populate BlockType keywords from stored word lists (set via WordListSet)
+	// Index 1 = CF tags, 5 = JS keywords, 6 = SQL keywords, 7 = CSS keywords
+	if (cfs->loweredlists[6]) {
+		Lexilla::WordList wl;
+		wl.Set(cfs->loweredlists[6]);
+		cfqueryblock->updateWordList(wl);
+	}
+	if (cfs->loweredlists[5]) {
+		Lexilla::WordList wl;
+		wl.Set(cfs->loweredlists[5]);
+		jsblock->updateWordList(wl);
+	}
+	if (cfs->loweredlists[7]) {
+		Lexilla::WordList wl;
+		wl.Set(cfs->loweredlists[7]);
+		cssblock->updateWordList(wl);
+	}
+	if (cfs->loweredlists[1]) {
+		Lexilla::WordList wl;
+		wl.Set(cfs->loweredlists[1]);
+		cfscriptblock->updateWordList(wl);
+	}
 
 	int currentLine = styler.GetLine(startPos);
 	int linestate = 0;
@@ -412,12 +514,9 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 	/*incfset.value	= getstoredbitvalue( linestate, incfset );
 	status.inCFSet			= incfset.value;
 	*/
-	CSciMessager sciMsgr(cfs->m_nppMsgr.getCurrentScintillaWnd());
-	unsigned int currenteditpos = sciMsgr.getCurrentPos();
-	bool outsideeditingrange = false;
-	if ((startPos < currenteditpos - min(currenteditpos, 100) || startPos > currenteditpos + 100)) {
-		outsideeditingrange = true;
-	}
+	// No scintilla window access in lexer - use IDocument* directly
+	// outsideeditingrange optimization removed: it breaks startup with files already open
+	// Just always colourise the full range
 	Lexilla::SparseState<std::string> cfTagsNew(startPos);
 	Lexilla::SparseState<std::string> htmlTagsNew(startPos);
 
@@ -467,11 +566,6 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 	//
 	while (sc.More()) {
 		unsigned int loopstartpos = sc.currentPos;
-		if (!outsideeditingrange) {
-			if ((loopstartpos < currenteditpos - min(currenteditpos, 100) || loopstartpos > currenteditpos + 100)) {
-				outsideeditingrange = true;
-			}
-		}
 		if (dostyling) {
 			if (sc.atLineEnd) {
 				// Update the line state, so it can be seen by next line
@@ -717,8 +811,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 										newArgument.pos = sc.currentPos + a;
 										newArgument.setName(word);
 										argumentsNew.Set(sc.currentPos + a, newArgument);
-										//word = new char[100];
-										wordpos = 0;
+																				wordpos = 0;
 									}
 
 									if (ch == '=') {
@@ -750,8 +843,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 								default:
 									if (prevch == ' ' && ch != ' ') {
 										// new word
-										//word = new char[100];
-										wordpos = 0;
+																				wordpos = 0;
 									}
 									if (ch != ' ') {
 										word[wordpos++] = ch;
@@ -782,8 +874,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 							newFunc.pos = 0;
 							const bool argumentsChanged = currentCFFunction.arguments.Merge(argumentsNew, sc.currentPos);
 							const bool localsChanged = currentCFFunction.locals.Merge(localsNew, sc.currentPos);
-							///const bool bracketsChanged = currentCFFunction.bracketDepths.Merge(bracketDepthsNew, sc.currentPos);
-							if (localsChanged) {
+														if (localsChanged) {
 								currentCFFunction.dirtyLocals = true;
 							}
 							if (argumentsChanged) {
@@ -792,8 +883,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 							cfUserFunctionsNew.Set(currentCFFunction.pos, currentCFFunction);
 							const bool cfUserFunctionsChanged = cfUserFunctions.Merge(cfUserFunctionsNew, sc.currentPos);
 							if (argumentsChanged || localsChanged || cfUserFunctionsChanged) {
-								//	styler.ChangeLexerState(startPos, sc.currentPos);
-							}
+															}
 							cfUserFunctionsNew.Set(sc.currentPos, newFunc);
 							currentCFFunction = newFunc;
 							argumentsNew = PublicSparseState<CFBaseType>();
@@ -838,34 +928,35 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 					max = (startPos - sc.currentPos) + length;
 				}
 				for (int a = 0; a < max; a++) {
-					int rel = sc.GetRelative(a);
-					if (rel != '.' && IsAWordChar(rel) || (inCSSBlock && rel == '-')) {
-						s[a] = Lexilla::MakeLowerCase(sc.GetRelative(a));
-					}
+							int rel = sc.GetRelative(a);
+							if (rel != '.' && IsAWordChar(rel) || (inCSSBlock && rel == '-')) {
+								s[a] = SafeMakeLowerCase(sc.GetRelative(a));
+							}
 					else {
 						s[a] = '\0';
 						bool handledkeyword = false;
 						// temp override
-						blocks[cfscript]->inBlock = inCFScript;
-						blocks[cfquery]->inBlock = inCFQuery;
-						blocks[js]->inBlock = inJSBlock;
-						blocks[css]->inBlock = inCSSBlock;
+						blocks[static_cast<size_t>(BlockId::CFScript)]->inBlock = inCFScript;
+						blocks[static_cast<size_t>(BlockId::CFQuery)]->inBlock = inCFQuery;
+						blocks[static_cast<size_t>(BlockId::JS)]->inBlock = inJSBlock;
+						blocks[static_cast<size_t>(BlockId::CSS)]->inBlock = inCSSBlock;
 						for (auto& thisblock : blocks) {
 							if (thisblock->inBlock &&
 								thisblock->validateforkeyword(sc, inCFSet)) {
 								if (thisblock->hasReservedWord(s)) {
-									int statebefore = sc.state;
-									if (dostyling) {
-										sc.SetState(sID::CFS_RESERVED);
-									}
+								                int statebefore = sc.state;
+								                if (dostyling) {
+								                    sc.SetState(sID::CFS_RESERVED);
+								                }
 
-									sc.Forward(a - 1);
+								                if (a > 0) {
+								                    sc.Forward(a - 1);
+								                }
 									
 									if ((strcmp(s, "var") == 0 && currentCFFunction.pos > 0) || strcmp(s, "function") == 0) {
 										
 										/* Read Ahead to get name */
-										///bool inName = false;
-										int j = 0;
+																				int j = 0;
 										char sName[100];
 										for (int b = 2; b < max; b++) {
 											int ch = styler.SafeGetCharAt(sc.currentPos + b, '\0');
@@ -914,57 +1005,63 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 									break;
 								}
 								else 	if (thisblock->hasOperator(s)) {
-									int statebefore = sc.state;
-									if (dostyling) {
-										sc.SetState(sID::_OPERATOR);
-									}
-									sc.Forward(a - 1);
+												int statebefore = sc.state;
+												if (dostyling) {
+													sc.SetState(sID::_OPERATOR);
+												}
+												if (a > 0) {
+													sc.Forward(a - 1);
+												}
 
-									if (dostyling) {
-										sc.ForwardSetState(statebefore);
-									}
-									handledkeyword = true;
-									break;
+												if (dostyling) {
+													sc.ForwardSetState(statebefore);
+												}
+												handledkeyword = true;
+												break;
 								}
-								else if (((outsideeditingrange && styler.StyleAt(sc.currentPos) == thisblock->getKeywordState()) ||
-									thisblock->hasKeyword(s))) {
-									int statebefore = sc.state;
-									if (dostyling) {
-										sc.SetState(thisblock->getKeywordState());
-									}
-									sc.Forward(a - 1);
-									if (dostyling) {
-										sc.ForwardSetState(statebefore);
-									}
-									handledkeyword = true;
-									break;
+								else if (thisblock->hasKeyword(s)) {
+													int statebefore = sc.state;
+													if (dostyling) {
+														sc.SetState(thisblock->getKeywordState());
+													}
+													if (a > 0) {
+														sc.Forward(a - 1);
+													}
+													if (dostyling) {
+														sc.ForwardSetState(statebefore);
+													}
+													handledkeyword = true;
+													break;
 								}
 								else if (currentCFFunction.pos > 0 && (inCFScript || inCFSet) && currentCFFunction.hasLocalVar(s)) {
-									int statebefore = sc.state;
-									if (dostyling) {
-										sc.SetState(sID::LOCAL_VARIABLE);
-									}
-									sc.Forward(a - 1);
-									if (dostyling) {
-										sc.ForwardSetState(statebefore);
-									}
-									handledkeyword = true;
-									break;
+												int statebefore = sc.state;
+												if (dostyling) {
+													sc.SetState(sID::LOCAL_VARIABLE);
+												}
+												if (a > 0) {
+													sc.Forward(a - 1);
+												}
+												if (dostyling) {
+													sc.ForwardSetState(statebefore);
+												}
+												handledkeyword = true;
+												break;
 								}
 							}
 						}
 						if ((inCFSet) &&
-							blocks[cfscript]->validateforkeyword(sc)) {
+							blocks[static_cast<size_t>(BlockId::CFScript)]->validateforkeyword(sc)) {
 
 							if (strcmp(s, "var") == 0) {
-								int statebefore = sc.state;
-								if (dostyling) {
-									sc.SetState(sID::CFS_RESERVED);
-								}
+											int statebefore = sc.state;
+											if (dostyling) {
+												sc.SetState(sID::CFS_RESERVED);
+											}
+											if (a > 0) {
+												sc.Forward(a - 1);
+											}
 
-								sc.Forward(a - 1);
-
-								if ((strcmp(s, "var") == 0 && currentCFFunction.pos > 0)) {
+											if ((strcmp(s, "var") == 0 && currentCFFunction.pos > 0)) {
 									/* Read Ahead to get name */
 									bool inName = false;
 									int j = 0;
@@ -998,42 +1095,47 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 								handledkeyword = true;
 								break;
 							}
-							else if (blocks[cfscript]->hasOperator(s)) {
-								int statebefore = sc.state;
-								if (dostyling) {
-									sc.SetState(sID::_OPERATOR);
-								}
-								handledkeyword = true;
-								sc.Forward(a - 1);
-								if (dostyling) {
-									sc.ForwardSetState(statebefore);
-								}
-								break;
+							else if (blocks[static_cast<size_t>(BlockId::CFScript)]->hasOperator(s)) {
+										int statebefore = sc.state;
+										if (dostyling) {
+											sc.SetState(sID::_OPERATOR);
+										}
+										if (a > 0) {
+											sc.Forward(a - 1);
+										}
+										handledkeyword = true;
+										if (dostyling) {
+											sc.ForwardSetState(statebefore);
+										}
+										break;
 							}
-							else if (((outsideeditingrange && styler.StyleAt(sc.currentPos) == blocks[cfscript]->getKeywordState()) ||
-								(blocks[cfscript]->hasKeyword(s)))) {
-								int statebefore = sc.state;
-								if (dostyling) {
-									sc.SetState(blocks[cfscript]->getKeywordState());
-								}
-								handledkeyword = true;
-								sc.Forward(a - 1);
-								if (dostyling) {
-									sc.ForwardSetState(statebefore);
-								}
-								break;
+							else if (blocks[static_cast<size_t>(BlockId::CFScript)]->hasKeyword(s)) {
+										int statebefore = sc.state;
+										if (dostyling) {
+											sc.SetState(blocks[static_cast<size_t>(BlockId::CFScript)]->getKeywordState());
+										}
+										if (a > 0) {
+											sc.Forward(a - 1);
+										}
+										handledkeyword = true;
+										if (dostyling) {
+											sc.ForwardSetState(statebefore);
+										}
+										break;
 							}
 							else if (currentCFFunction.pos > 0 && (inCFScript || inCFSet) && currentCFFunction.hasLocalVar(s)) {
-								int statebefore = sc.state;
-								if (dostyling) {
-									sc.SetState(sID::LOCAL_VARIABLE);
-								}
-								sc.Forward(a - 1);
-								if (dostyling) {
-									sc.ForwardSetState(statebefore);
-								}
-								handledkeyword = true;
-								break;
+											int statebefore = sc.state;
+											if (dostyling) {
+												sc.SetState(sID::LOCAL_VARIABLE);
+											}
+											if (a > 0) {
+												sc.Forward(a - 1);
+											}
+											if (dostyling) {
+												sc.ForwardSetState(statebefore);
+											}
+											handledkeyword = true;
+											break;
 							}
 						}
 						if (handledkeyword) {
@@ -1049,25 +1151,25 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 		}
 
 		if (sc.Match('<') && !inCFSet && sc.state != sID::CF_VALUE && sc.state != sID::_COMMENT && (sc.state != sID::_COMMENTBLOCK || inJSBlock)) {
-			char s[100];
-			char paddedText[102];
+				char s[100];
+				char paddedText[102];
 
-			int i = 0;
-			paddedText[i] = ' ';
+				int i = 0;
+				paddedText[i] = ' ';
 
-			if (status.tagOpening && status.currentHTMLTag[0] != '\0') {
-				status.preCFTagisHTMLTagOpening = true;
-			}
+				if (status.tagOpening && status.currentHTMLTag[0] != '\0') {
+					status.preCFTagIsHTMLTagOpening = true;
+				}
 
-			status.tagOpening = true;
-			status.tagClosing = false;
-			ZeroMemory(status.currentCFTag, sizeof(status.currentCFTag));
+				status.tagOpening = true;
+				status.tagClosing = false;
+				status.currentCFTag.fill(0);
 
-			if (!status.preCFTagisHTMLTagOpening) {
-				ZeroMemory(status.currentHTMLTag, sizeof(status.currentHTMLTag));
-			}
+				if (!status.preCFTagIsHTMLTagOpening) {
+					status.currentHTMLTag.fill(0);
+				}
 
-			int max = 100;
+				int max = 100;
 			if ((startPos - sc.currentPos) + length < 100) {
 				max = (startPos - sc.currentPos) + length;
 			}
@@ -1075,7 +1177,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 			for (int a = 0; a < max; a++) {
 				int ch = sc.GetRelative(a + 1);
 				if (setTagContinue.Contains(ch)) {
-					s[i++] = Lexilla::MakeLowerCase(ch);
+								s[i++] = SafeMakeLowerCase(ch);
 					paddedText[i] = s[i - 1];
 				}
 				else {
@@ -1090,13 +1192,14 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 					paddedText[i] = ' ';
 					paddedText[i + 1] = s[i - 1];
 					bool scriptcheck = (!inCFScript || (strcmp(s, "cfscript") == 0 && status.tagClosing));
-					bool jsscriptcheck = (!inJSBlock || (strcmp(s, "script") == 0 && status.tagClosing));
+							bool jsscriptcheck = (!inJSBlock || (strcmp(s, "script") == 0 && status.tagClosing));
 
-					if (scriptcheck && ((outsideeditingrange && styler.StyleAt(sc.currentPos) == sID::CF_TAG) || cfs->coldfusionNS->isTag(paddedText))) {
+							// Use s (null-terminated) for tag lookup, not paddedText (which has trailing space)
+							if (scriptcheck && (styler.StyleAt(sc.currentPos) == sID::CF_TAG || cfs->coldfusionNS->isTag(s))) {
 						if (!status.tagClosing) {
 							cfTagsNew.Set(sc.currentPos + strnlen_s(s, sizeof(s)) + 1, s);
 						}
-						strcpy_s(status.currentCFTag, sizeof(s), s);
+						strcpy_s(status.currentCFTag.data(), status.currentCFTag.size(), s);
 
 						if (strcmp(s, "cffunction") == 0 && dostyling) {
 							CFUserFunction newFunc(sc.currentPos);
@@ -1113,8 +1216,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 								cfUserFunctionsNew.Set(currentCFFunction.pos, currentCFFunction);
 								const bool cfUserFunctionsChanged = cfUserFunctions.Merge(cfUserFunctionsNew, sc.currentPos);
 								if (argumentsChanged || localsChanged || cfUserFunctionsChanged) {
-									//	styler.ChangeLexerState(startPos, sc.currentPos);
-								}
+																	}
 							}
 							cfUserFunctionsNew.Set(sc.currentPos, newFunc);
 							currentCFFunction = newFunc;
@@ -1135,14 +1237,12 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 							inCFSetsNew.Set(sc.currentPos + strlen(s), true);
 						}
 					}
-					else if (jsscriptcheck && scriptcheck && cfs->htmlNS->isTag(paddedText) && !inCFQuery) {
+					else if (jsscriptcheck && scriptcheck && cfs->htmlNS->isTag(s) && !inCFQuery) {
 						if (!status.tagClosing) {
-							//SparseState<std::string> rawSTNew(sc.currentPos);
-
+							
 							htmlTagsNew.Set(sc.currentPos + strnlen_s(s, sizeof(s)), s);
-							//const bool rawStringsChanged = htmlTags.Merge(rawSTNew, sc.currentPos + strnlen_s( s, sizeof( s ) ));
-						}
-						strcpy_s(status.currentHTMLTag, sizeof(s), s);
+													}
+						strcpy_s(status.currentHTMLTag.data(), status.currentHTMLTag.size(), s);
 						if (dostyling) {
 							if (!inJSBlock) {
 								status.stateHistory[++status.lastState] = sc.state;
@@ -1165,7 +1265,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 			}
 		}
 
-		if (sc.state == sID::_TAG && !sc.Match('>') && dostyling && status.tagOpening && status.currentHTMLTag != 0 && sc.Match(' ') && !sc.Match(" #")) {
+		if (sc.state == sID::_TAG && !sc.Match('>') && dostyling && status.tagOpening && status.currentHTMLTag[0] != '\0' && sc.Match(' ') && !sc.Match(" #")) {
 			char s[100];
 			int i = 0;
 			int max = 100;
@@ -1175,14 +1275,14 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 			for (int a = 0; a < max; a++) {
 				int ch = sc.GetRelative(a + 1);
 				if (setTagContinue.Contains(ch)) {
-					s[i++] = Lexilla::MakeLowerCase(ch);
+								s[i++] = SafeMakeLowerCase(ch);
 				}
 				else {
 					//we're at a block
 
 					s[i++] = '\0';
 
-					if (cfs->htmlNS->tagHasAttribute(status.currentHTMLTag, s)) {
+					if (cfs->htmlNS->tagHasAttribute(status.currentHTMLTag.data(), s)) {
 						sc.SetState(sID::_ATTRIBUTE);
 						sc.Forward(strnlen_s(s, 100));
 						sc.ForwardSetState(sID::_TAG);
@@ -1197,7 +1297,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 				}
 			}
 		}
-		if (sc.state == sID::CF_TAG && !sc.Match('>') && dostyling && status.tagOpening && status.currentCFTag != 0 && (sc.Match(' ') || sc.Match('\t'))) {
+		if (sc.state == sID::CF_TAG && !sc.Match('>') && dostyling && status.tagOpening && status.currentCFTag[0] != '\0' && (sc.Match(' ') || sc.Match('\t'))) {
 			char s[100];
 			int i = 0;
 			int max = 100;
@@ -1207,16 +1307,16 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 			for (int a = 0; a < max; a++) {
 				int ch = sc.GetRelative(a + 1);
 				if (setTagContinue.Contains(ch)) {
-					s[i++] = Lexilla::MakeLowerCase(ch);
+								s[i++] = SafeMakeLowerCase(ch);
 				}
 				else {
 					//we're at a block
 
 					s[i++] = '\0';
 
-					if (cfs->coldfusionNS->tagHasAttribute(status.currentCFTag, s)) {
+					if (cfs->coldfusionNS->tagHasAttribute(status.currentCFTag.data(), s)) {
 
-						if ((strcmp(status.currentCFTag, "cffunction") == 0 || strcmp(status.currentCFTag, "cfargument") == 0) && strcmp(s, "name") == 0) {
+						if ((strcmp(status.currentCFTag.data(), "cffunction") == 0 || strcmp(status.currentCFTag.data(), "cfargument") == 0) && strcmp(s, "name") == 0) {
 							/* Read Ahead to get name */
 							bool inName = false;
 							int j = 0;
@@ -1242,7 +1342,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 							if (j > 0) {
 								sName[--j] = '\0';
 
-								if (strcmp(status.currentCFTag, "cffunction") == 0) {
+								if (strcmp(status.currentCFTag.data(), "cffunction") == 0) {
 									currentCFFunction.setName(sName);
 									currentCFFunction.pos = sc.currentPos;
 									currentCFFunction.arguments.setPositionFirst(sc.currentPos);
@@ -1255,8 +1355,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 									newArgument.pos = sc.currentPos;
 									newArgument.setName(sName);
 									argumentsNew.Set(sc.currentPos, newArgument);
-									//SparseState<CFBaseType>::stateVector argumentStates = currentCFFunction.arguments.getStates();
-								}
+																	}
 							}
 						}
 
@@ -1273,8 +1372,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 					break;
 				}
 			}
-			//int i = 0;
-		}
+					}
 
 		if (sc.Match('>') && (sc.state == sID::CF_TAG || sc.state == sID::_DEFAULT || sc.state == sID::_TAG)) {
 			//if (/*&&*/ !status.inCFVal && !status.inSingleString  && !( status.inDoubleString && !status.inDoubleStringBeforeCFSet  /* && status.currentCFTag == '\0'*/ ) ) {
@@ -1295,57 +1393,52 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 				state = styler.StyleAt(sc.currentPos);
 			}
 
-			if (state == sID::CF_TAG || (status.tagClosing && state == sID::_DEFAULT && strcmp(status.currentCFTag, "cfscript") == 0)) {
+			if (state == sID::CF_TAG || (status.tagClosing && state == sID::_DEFAULT && strcmp(status.currentCFTag.data(), "cfscript") == 0)) {
 
-				std::string currentTag = coldFusionTags.ValueAt(sc.currentPos);
-				//SparseState<std::string> rawSTNew(sc.currentPos);
-
-				auto j = strnlen_s(status.currentCFTag, sizeof(status.currentCFTag));
+					std::string currentTag = coldFusionTags.ValueAt(sc.currentPos);
+					
+					auto j = strnlen_s(status.currentCFTag.data(), status.currentCFTag.size());
 						status.currentCFTag[j] = ' ';
 						status.currentCFTag[j + 1] = '\0';
-						if (strstr("cfabort cfajaximport cfajaxproxy cfapplet cfapplication cfargument cfassociate cfbreak cfcache cfcalendar cfchartdata cfchartseries cfcol cfcollection cfcontent cfcontinue cfcookie cfdbinfo cfdirectory cfdiv cfdump cfelse cfelseif cferror cfexchangecalendar cfexchangeconnection cfexchangecontact cfexchangefilter cfexchangemail cfexchangetask cfexit cffeed cffile cfflush cfftp cfgridcolumn cfgridrow cfgridupdate cfheader cfhtmlhead cfhttp cfhttpparam cfimage cfimport cfinclude cfindex cfinput cfinsert cfinvoke cfinvokeargument cfldap cflocation cflog cfloginuser cflogout cfmailparam cfmodule cfntauthenticate cfobject cfobjectcache cfparam cfpdf cfpdfformparam cfpdfparam cfpop cfpresenter cfprint cfprocessingdirective cfprocparam cfprocresult cfproperty cfqueryparam cfregistry cfreport cfreportparam cfrethrow cfreturn cfschedule cfsearch cfset cfsetting cfsilent cfslider cfsprydataset cfstoredproc cftextinput cfthrow cftrace cftreeitem cfupdate cfwddx cfzip cfzipparam cfwebsocket cfclient cfpdfform cfpdfformparam cfpdfsubform", status.currentCFTag) == NULL) {
-					if (status.tagOpening) {
-						if (!dostyling) {
-							auto curlen = strnlen(status.openTagsBuffer, sizeof(status.openTagsBuffer));
-							status.openTagsPositions[status.currentopenTag] = curlen;
-							strcpy_s(&status.openTagsBuffer[curlen], sizeof(status.openTagsBuffer) - curlen, status.currentCFTag);
-							status.currentopenTag++;
-						}
-					}
+						if (CF_SINGLE_TAGS.find(std::string_view(status.currentCFTag.data())) == CF_SINGLE_TAGS.end()) {
+									if (status.tagOpening) {
+										if (!dostyling) {
+											auto curlen = strnlen(status.openTagsBuffer.data(), status.openTagsBuffer.size());
+											// Bounds check: prevent buffer overflow
+											if (status.currentOpenTag < Constants::MAX_OPEN_TAGS_POSITIONS && curlen < status.openTagsBuffer.size()) {
+												status.openTagsPositions[status.currentOpenTag] = curlen;
+												strcpy_s(&status.openTagsBuffer[curlen], status.openTagsBuffer.size() - curlen, status.currentCFTag.data());
+												status.currentOpenTag++;
+											}
+										}
+									}
 					if (status.tagClosing) {
 						if (!dostyling) {
-							if (status.currentopenTag > 0) {
-								status.currentopenTag--;
-								status.openTagsBuffer[status.openTagsPositions[status.currentopenTag]] = '\0';
+							if (status.currentOpenTag > 0) {
+								status.currentOpenTag--;
+								status.openTagsBuffer[status.openTagsPositions[status.currentOpenTag]] = '\0';
 							}
 						}
 					}
 				}
 				status.currentCFTag[j] = '\0';
 				if (dostyling) {
-					if ((strcmp(status.currentCFTag, "cfquery") == 0)) {
+							if ((strcmp(status.currentCFTag.data(), "cfquery") == 0)) {
 						if (status.tagOpening) {
 							inCFQuery = true;
 							cfQueryBlocksNew.Set(sc.currentPos, true);
-							//linestate = styler.GetLineState( currentLine );
-							//blocks[cfquery]->updatelinestate( linestate );
-							sc.ForwardSetState(sID::_DEFAULT);
+																					sc.ForwardSetState(sID::_DEFAULT);
 						}
 						else if (status.tagClosing && inCFQuery) {
 							inCFQuery = false;
 							cfQueryBlocksNew.Set(sc.currentPos, false);
-							//blocks[cfquery]->inBlock = 0;
-							//linestate = styler.GetLineState( currentLine );
-							//blocks[cfquery]->updatelinestate( linestate );
-							sc.ForwardSetState(status.stateHistory[status.lastState--]);
+																												sc.ForwardSetState(status.stateHistory[status.lastState--]);
 						}
 					}
-					else if ((strcmp(status.currentCFTag, "cfoutput") == 0)) {
+					else if ((strcmp(status.currentCFTag.data(), "cfoutput") == 0)) {
 						if (status.tagOpening) {
 							cfOutputDepth++;
-							//linestate = styler.GetLineState( currentLine );
-							//linestate = changestoredbitvalue( linestate, cfoutputdepth );
-							cfOutputDepthsNew.Set(sc.currentPos, cfOutputDepth);
+																					cfOutputDepthsNew.Set(sc.currentPos, cfOutputDepth);
 						}
 						else if (status.tagClosing && cfOutputDepth > 0) {
 							cfOutputDepth--;
@@ -1354,7 +1447,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 						}
 						sc.ForwardSetState(status.stateHistory[status.lastState--]);
 					}
-					else if ((strcmp(status.currentCFTag, "cfscript") == 0)) {
+					else if ((strcmp(status.currentCFTag.data(), "cfscript") == 0)) {
 						if (status.tagOpening) {
 							inCFScript = true;
 							scriptBlocksNew.Set(sc.currentPos, true);
@@ -1371,7 +1464,7 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 					}
 				}
 				if (status.tagClosing) {
-					status.tagOpening = status.preCFTagisHTMLTagOpening;
+					status.tagOpening = status.preCFTagIsHTMLTagOpening;
 					status.currentCFTag[0] = '\0';
 					status.tagClosing = false;
 				}
@@ -1385,31 +1478,33 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 			else if (state == sID::_TAG) {
 				std::string currentTag = htmlTags.ValueAt(sc.currentPos);
 				Lexilla::SparseState<std::string> htmlTagsNew(sc.currentPos);
-				if (strstr("meta link img area br hr input ", status.currentHTMLTag) == NULL) {
-					if (status.tagOpening) {
-						if (!dostyling) {
-							auto curlen = strnlen(status.openTagsBuffer, sizeof(status.openTagsBuffer));
-							status.openTagsPositions[status.currentopenTag] = curlen;
-							strcpy_s(&status.openTagsBuffer[curlen], sizeof(status.openTagsBuffer) - curlen, status.currentHTMLTag);
-							status.currentopenTag++;
-						}
-					}
+				if (HTML_SINGLE_TAGS.find(std::string_view(status.currentHTMLTag.data())) == HTML_SINGLE_TAGS.end()) {
+								if (status.tagOpening) {
+									if (!dostyling) {
+										auto curlen = strnlen(status.openTagsBuffer.data(), status.openTagsBuffer.size());
+										// Bounds check: prevent buffer overflow
+										if (status.currentOpenTag < Constants::MAX_OPEN_TAGS_POSITIONS && curlen < status.openTagsBuffer.size()) {
+											status.openTagsPositions[status.currentOpenTag] = curlen;
+											strcpy_s(&status.openTagsBuffer[curlen], status.openTagsBuffer.size() - curlen, status.currentHTMLTag.data());
+											status.currentOpenTag++;
+										}
+									}
+								}
 					if (status.tagClosing && !status.tagOpening) {
 						if (!dostyling) {
-							status.currentopenTag--;
-							if (status.currentopenTag > 0) {
-								status.openTagsBuffer[status.openTagsPositions[status.currentopenTag]] = '\0';
+							status.currentOpenTag--;
+							if (status.currentOpenTag > 0) {
+								status.openTagsBuffer[status.openTagsPositions[status.currentOpenTag]] = '\0';
 							}
 						}
 					}
 				}
 				if (dostyling) {
-					if ((strcmp(status.currentHTMLTag, "script") == 0)) {
+					if ((strcmp(status.currentHTMLTag.data(), "script") == 0)) {
 						if (status.tagOpening) {
 							inJSBlock = true;
 							jsBlocksNew.Set(sc.currentPos, true);
-							//linestate = styler.GetLineState( currentLine );
-							//blocks[js]->updatelinestate( linestate );
+														//blocks[static_cast<size_t>(BlockId::JS)]->updatelinestate( linestate );
 							sc.ForwardSetState(sID::_DEFAULT);
 						}
 						else if (status.tagClosing && inJSBlock) {
@@ -1420,13 +1515,13 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 							sc.ForwardSetState(status.stateHistory[status.lastState--]);
 						}
 					}
-					else 	if ((strcmp(status.currentHTMLTag, "style") == 0)) {
+					else 	if ((strcmp(status.currentHTMLTag.data(), "style") == 0)) {
 						if (status.tagOpening) {
 							inCSSBlock = true;
 							cssBlocksNew.Set(sc.currentPos, true);
 							sc.ForwardSetState(sID::_DEFAULT);
 						}
-						else if (status.tagClosing && blocks[css]->inBlock) {
+						else if (status.tagClosing && blocks[static_cast<size_t>(BlockId::CSS)]->inBlock) {
 							inCSSBlock = false;
 							cssBlocksNew.Set(sc.currentPos, false);
 							sc.ForwardSetState(status.stateHistory[status.lastState--]);
@@ -1496,6 +1591,78 @@ Status LexerColdFusion::Colourise_Doc(Sci_PositionU startPos, Sci_Position lengt
 }
 
 
+int SCI_METHOD LexerColdFusion::NamedStyles() {
+    return 24; // Highest style ID + 1 (0-23, matching XML styleIDs with gaps)
+}
+
+const char* SCI_METHOD LexerColdFusion::NameOfStyle(int style) {
+    // Must match nppColdFusion.xml WordsStyle name attributes exactly
+    // Indexed by styleID (0-23), gaps return empty string
+    static const char* styleNames[] = {
+        "DEFAULT",           // 0
+        "TAG",               // 1
+        "CFTAG",             // 2
+        "ATTRIBUTE",         // 3
+        "ATTRIBUTEUNKNOWN",  // 4
+        "NUMBER",            // 5
+        "DOUBLESTRING",      // 6
+        "SINGLESTRING",      // 7
+        "OPERATOR",          // 8
+        "COMMENT",           // 9
+        "COMMENTBLOCK",      // 10
+        "",                  // 11 (gap)
+        "CFCOMMENT",         // 12
+        "CFVALUE",           // 13
+        "CFFUNCTION",        // 14
+        "CFATTRIBUTE",       // 15
+        "CFATTRIBUTEBAD",    // 16
+        "LOCALVARS",         // 17
+        "",                  // 18 (gap)
+        "CFSRESERVED",       // 19
+        "",                  // 20 (gap)
+        "SQLKEYWORDS",       // 21
+        "JSKEYWORDS",        // 22
+        "CSSKEYWORDS",       // 23
+    };
+    if (style >= 0 && style < 24) return styleNames[style];
+    return "";
+}
+
+const char* SCI_METHOD LexerColdFusion::DescriptionOfStyle(int style) {
+    static const char* styleDescs[] = {
+        "Default text",           // 0 DEFAULT
+        "HTML tag",               // 1 TAG
+        "CFML tag",               // 2 CFTAG
+        "Attribute name",         // 3 ATTRIBUTE
+        "Unknown attribute",      // 4 ATTRIBUTEUNKNOWN
+        "Number",                 // 5 NUMBER
+        "Double-quoted string",   // 6 DOUBLESTRING
+        "Single-quoted string",   // 7 SINGLESTRING
+        "Operator",               // 8 OPERATOR
+        "Comment",                // 9 COMMENT
+        "Block comment",          // 10 COMMENTBLOCK
+        "",                       // 11 (gap)
+        "CFML comment",           // 12 CFCOMMENT
+        "CFML value",             // 13 CFVALUE
+        "CFML function",          // 14 CFFUNCTION
+        "CFML attribute",         // 15 CFATTRIBUTE
+        "Bad CFML attribute",     // 16 CFATTRIBUTEBAD
+        "Local variables",        // 17 LOCALVARS
+        "",                       // 18 (gap)
+        "CFML reserved",          // 19 CFSRESERVED
+        "",                       // 20 (gap)
+        "SQL keywords",           // 21 SQLKEYWORDS
+        "JavaScript keywords",    // 22 JSKEYWORDS
+        "CSS keywords",           // 23 CSSKEYWORDS
+    };
+    if (style >= 0 && style < 24) return styleDescs[style];
+    return "";
+}
+
+const char* SCI_METHOD LexerColdFusion::TagsOfStyle(int style) {
+    return "";
+}
+
 Scintilla::ILexer5* SCI_METHOD LexerColdFusion::CreateLexer(const char* name)
 {
 	return (strcmp(name, LexerName()) == 0) ? LexerColdFusion::LexerFactory() : nullptr;
@@ -1504,8 +1671,7 @@ Scintilla::ILexer5* SCI_METHOD LexerColdFusion::CreateLexer(const char* name)
 const char* SCI_METHOD LexerColdFusion::PropertyGet(const char* key) { return "";} ///
 
 CFUserFunction::CFUserFunction(unsigned int ipos) {
-	//arguments.states.empty();
-	pos = ipos;
+		pos = ipos;
 }
 
 CFUserFunction::CFUserFunction() {

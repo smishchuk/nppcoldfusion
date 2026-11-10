@@ -40,7 +40,7 @@ namespace nppColdFusionNS
 {
 	constexpr const TCHAR* LEXER_NAME = STRINGIFY("ColdFusion");
 	constexpr const TCHAR* PLUGIN_NAME = STRINGIFY("nppColdFusion");
-	constexpr const TCHAR* PLUGIN_VERSION = STRINGIFY("0.9.1");
+	constexpr const TCHAR* PLUGIN_VERSION = STRINGIFY("0.9.8");
 	constexpr const TCHAR* PLUGIN_STATUS_TEXT = STRINGIFY("ColdFusion Lexer for Notepad++");
 
 	typedef struct {
@@ -91,15 +91,6 @@ namespace nppColdFusionNS
 			}
 
 	};
-	/*
-	template <typename T>
-	class PublicSparseState : public Lexilla::SparseState<T> {
-	public:
-		PublicSparseState() { }
-		~PublicSparseState() { }
-		const Lexilla::SparseState<T>stateVector getStates() { return this->states; }
-		void setPositionFirst(int positionFirst_) { this->positionFirst = positionFirst_; }
-	};*/
 	template <typename T>
 	class PublicSparseState : public Lexilla::SparseState<T> {
 	public:
@@ -159,24 +150,23 @@ namespace nppColdFusionNS
 			return sortedLocals;
 		}
 
-		std::string getArgumentssSorted(const char* append = "\0") {
+		std::string getArgumentsSorted(const char* append = "\0") {
 			if (dirtyArguments || append[0] != '\0') {
 				sortedArguments.assign(getSortedList(arguments, append));
 			}
 			return sortedArguments;
 		}
 
-		bool hasLocalVar(char* var) {
-
-			stateVector states = locals.getStates();
-			for (stateVector::iterator thisstate = states.begin(); thisstate != states.end(); ++thisstate) {
-				if ((*thisstate).value.nameLowered == var) {
-					return true;
+		bool hasLocalVar(const char* var) {
+				stateVector states = locals.getStates();
+				for (stateVector::iterator thisstate = states.begin(); thisstate != states.end(); ++thisstate) {
+					if ((*thisstate).value.nameLowered == std::string(var)) {
+						return true;
+					}
 				}
+				return false;
 			}
-			return false;
-		};
-		~CFUserFunction();
+			~CFUserFunction();
 	};
 
 	class nppCFShared;
@@ -213,6 +203,7 @@ namespace nppColdFusionNS
 		void SCI_METHOD Fold(Sci_PositionU startPos, Sci_Position length, int initStyle, Scintilla::IDocument* pAccess);
 		Status Colourise_Doc(Sci_PositionU startPos, Sci_Position length, int initStyle, Lexilla::LexAccessor& styler, bool dostyling = true);
 		Sci_Position SCI_METHOD WordListSet(int n, const char* wl);
+	const char* SCI_METHOD DescribeWordListSets();
 		static ILexer5* LexerFactory() {
 			try {
 				return new LexerColdFusion();
@@ -229,6 +220,10 @@ namespace nppColdFusionNS
 		//int SCI_METHOD GetIdentifier();
 		//const char* SCI_METHOD PropertyGet(const char* key);
 		int SCI_METHOD Version() const override;
+		int SCI_METHOD NamedStyles() override;
+		const char* SCI_METHOD NameOfStyle(int style) override;
+		const char* SCI_METHOD DescriptionOfStyle(int style) override;
+		const char* SCI_METHOD TagsOfStyle(int style) override;
 	};
 
 	LRESULT nppMessageProc(UINT Message, WPARAM wParam, LPARAM lParam);

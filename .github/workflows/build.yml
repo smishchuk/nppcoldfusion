@@ -1,22 +1,20 @@
-name: Build nppColdFusion Plugin
+name: Build & Release
 
 on:
   push:
-    branches: [master, main]
-    tags: ['v*']
+    tags:
+      - 'v*'
+    branches:
+      - master
+      - 'feat/**'
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v0.9.1)'
-        required: false
-        type: string
-
-permissions:
-  contents: write
-  packages: write
 
 env:
   SOLUTION_FILE: vs.proj/nppColdFusion.sln
+  PROJECT_FILE: vs.proj/nppColdFusion.vcxproj
   CONFIGURATION: Release
 
 jobs:
@@ -45,68 +43,58 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
-        with:
-          nuget-version: '6.x'
-
-      - name: Restore NuGet packages
-        run: nuget restore "${{ env.SOLUTION_FILE }}"
-
-      - name: Build with MSBuild (x64)
+      - name: Build x64 (project directly, not solution)
         run: |
-          msbuild "${{ env.SOLUTION_FILE }}" `
-            /p:Configuration="${{ env.CONFIGURATION }}" `
+          msbuild "${{ env.PROJECT_FILE }}" `
+            /p:Configuration="Unicode Release" `
             /p:Platform="x64" `
             /p:PlatformToolset=v143 `
             /p:WindowsTargetPlatformVersion=10.0 `
-            /verbosity:minimal `
+            /verbosity:detailed `
             /maxcpucount
 
-      - name: Verify build outputs (x64)
+      - name: Verify x64 build outputs
         run: |
-          $dllPath = "vs.proj\\x64\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll"
+          $dllPath = "vs.proj\\x64\\Unicode Release\\nppColdFusion.dll"
           $xmlPath = "src\\nppColdFusion.xml"
-          $db3Path = "src\\nppColdFusion.db3"
 
           if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
           if (-not (Test-Path $xmlPath)) { Write-Error "XML not found at $xmlPath"; exit 1 }
-          if (-not (Test-Path $db3Path)) { Write-Error "DB3 not found at $db3Path"; exit 1 }
 
-          Write-Host "All artifacts found"
+          Write-Host "All x64 artifacts found"
 
-      - name: Prepare release artifacts (x64)
+      - name: Prepare x64 artifacts (classic structure)
         shell: powershell
         run: |
-          $version = "${{ github.ref_name }}"
-          if ($version -notmatch '^v\d+\.\d+\.\d+') {
-            $version = "v$(git describe --tags --always --dirty)"
-          }
-          $artifactDir = "dist\\${version}\\x64"
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $ws = $env:GITHUB_WORKSPACE
+          $x64Dir = Join-Path $ws "artifacts\\x64"
+          $sharedDir = Join-Path $ws "artifacts\\shared"
+          New-Item -ItemType Directory -Force -Path $x64Dir | Out-Null
+          New-Item -ItemType Directory -Force -Path $sharedDir | Out-Null
 
-          Copy-Item "vs.proj\\x64\\Unicode ${{ env.CONFIGURATION }}\\nppColdFusion.dll" "$artifactDir\\nppColdFusion.dll"
-          Copy-Item "src\\nppColdFusion.xml" "$artifactDir\\nppColdFusion.xml"
-          Copy-Item "src\\nppColdFusion.db3" "$artifactDir\\nppColdFusion.db3"
+          # x64 DLL
+          Copy-Item (Join-Path $ws "vs.proj\\x64\\Unicode Release\\nppColdFusion.dll") (Join-Path $x64Dir "nppColdFusion.dll")
 
-          $installText = "nppColdFusion $version - Installation Instructions`n====================================================`n`n1. Create folder: %ProgramFiles%\\Notepad++\\plugins\\nppColdFusion\\`n2. Copy nppColdFusion.dll to that folder`n3. Copy nppColdFusion.xml and nppColdFusion.db3 to:`n   %AppData%\\Notepad++\\plugins\\config\\`n`nFor Portable Notepad++:`n  Copy nppColdFusion.dll to <Notepad++>\\plugins\\nppColdFusion\\`n  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\\plugins\\config\\"
-          Set-Content "$artifactDir\\INSTALL.txt" -Encoding UTF8 -Value $installText
+          # Shared assets (xml only - db3 removed, legacy)
+          Copy-Item (Join-Path $ws "src\\nppColdFusion.xml") (Join-Path $sharedDir "nppColdFusion.xml")
 
-          # SHA256SUMS.txt (required for Plugin Admin)
-          $sha256 = @()
-          $sha256 += "nppColdFusion.dll $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.dll" | Select-Object -ExpandProperty Hash -First 1)"
-          $sha256 += "nppColdFusion.xml $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.xml" | Select-Object -ExpandProperty Hash -First 1)"
-          $sha256 += "nppColdFusion.db3 $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.db3" | Select-Object -ExpandProperty Hash -First 1)"
-          Set-Content "$artifactDir\\SHA256SUMS.txt" -Encoding UTF8 -Value ($sha256 -join "`n")
-
-          Write-Host "x64 artifacts prepared in $artifactDir"
-          Get-ChildItem $artifactDir
+          Write-Host "x64 artifacts prepared in $x64Dir"
+          Write-Host "Shared artifacts prepared in $sharedDir"
+          Get-ChildItem $x64Dir
+          Get-ChildItem $sharedDir
 
       - name: Upload x64 build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nppColdFusion-x64-${{ env.CONFIGURATION }}
-          path: dist/**/*
+          path: artifacts/x64/**
+          retention-days: 30
+
+      - name: Upload shared artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nppColdFusion-shared-${{ env.CONFIGURATION }}
+          path: artifacts/shared/**
           retention-days: 30
 
   build-win32:
@@ -134,69 +122,114 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
-        with:
-          nuget-version: '6.x'
-
-      - name: Restore NuGet packages
-        run: nuget restore "${{ env.SOLUTION_FILE }}"
-
-      - name: Build Win32 (solution platform x86 maps to project Unicode Release|Win32)
+      - name: Build Win32 (project directly, not solution)
         run: |
-          msbuild "${{ env.SOLUTION_FILE }}" `
-            /p:Configuration="${{ env.CONFIGURATION }}" `
-            /p:Platform="x86" `
+          msbuild "${{ env.PROJECT_FILE }}" `
+            /p:Configuration="Unicode Release" `
+            /p:Platform="Win32" `
             /p:PlatformToolset=v143 `
             /p:WindowsTargetPlatformVersion=10.0 `
-            /verbosity:minimal `
+            /verbosity:detailed `
             /maxcpucount
 
       - name: Verify Win32 build outputs
         run: |
           $dllPath = "vs.proj\\Win32\\Unicode Release\\nppColdFusion.dll"
           $xmlPath = "src\\nppColdFusion.xml"
-          $db3Path = "src\\nppColdFusion.db3"
 
           if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
           if (-not (Test-Path $xmlPath)) { Write-Error "XML not found at $xmlPath"; exit 1 }
-          if (-not (Test-Path $db3Path)) { Write-Error "DB3 not found at $db3Path"; exit 1 }
 
           Write-Host "All Win32 artifacts found"
 
-      - name: Prepare release artifacts (Win32)
+      - name: Prepare Win32 artifacts (classic structure)
         shell: powershell
         run: |
-          $version = "${{ github.ref_name }}"
-          if ($version -notmatch '^v\d+\.\d+\.\d+') {
-            $version = "v$(git describe --tags --always --dirty)"
-          }
-          $artifactDir = "dist\\${version}\\win32"
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $ws = $env:GITHUB_WORKSPACE
+          $x86Dir = Join-Path $ws "artifacts\\x86"
+          New-Item -ItemType Directory -Force -Path $x86Dir | Out-Null
 
-          Copy-Item "vs.proj\\Win32\\Unicode Release\\nppColdFusion.dll" "$artifactDir\\nppColdFusion.dll"
-          Copy-Item "src\\nppColdFusion.xml" "$artifactDir\\nppColdFusion.xml"
-          Copy-Item "src\\nppColdFusion.db3" "$artifactDir\\nppColdFusion.db3"
+          # Win32 DLL (standard name)
+          Copy-Item (Join-Path $ws "vs.proj\\Win32\\Unicode Release\\nppColdFusion.dll") (Join-Path $x86Dir "nppColdFusion.dll")
 
-          $installText = "nppColdFusion $version - Installation Instructions`n====================================================`n`n1. Create folder: %ProgramFiles%\\Notepad++\\plugins\\nppColdFusion\\`n2. Copy nppColdFusion.dll to that folder`n3. Copy nppColdFusion.xml and nppColdFusion.db3 to:`n   %AppData%\\Notepad++\\plugins\\config\\`n`nFor Portable Notepad++:`n  Copy nppColdFusion.dll to <Notepad++>\\plugins\\nppColdFusion\\`n  Copy nppColdFusion.xml and nppColdFusion.db3 to <Notepad++>\\plugins\\config\\"
-          Set-Content "$artifactDir\\INSTALL.txt" -Encoding UTF8 -Value $installText
-
-          # SHA256SUMS.txt (required for Plugin Admin)
-          $sha256 = @()
-          $sha256 += "nppColdFusion.dll $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.dll" | Select-Object -ExpandProperty Hash -First 1)"
-          $sha256 += "nppColdFusion.xml $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.xml" | Select-Object -ExpandProperty Hash -First 1)"
-          $sha256 += "nppColdFusion.db3 $(Get-FileHash -Algorithm SHA256 "$artifactDir\\nppColdFusion.db3" | Select-Object -ExpandProperty Hash -First 1)"
-          Set-Content "$artifactDir\\SHA256SUMS.txt" -Encoding UTF8 -Value ($sha256 -join "`n")
-
-          Write-Host "Win32 artifacts prepared in $artifactDir"
-          Get-ChildItem $artifactDir
+          Write-Host "Win32 artifacts prepared in $x86Dir"
+          Get-ChildItem $x86Dir
 
       - name: Upload Win32 build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nppColdFusion-Win32-${{ env.CONFIGURATION }}
-          path: dist/**/*
+          path: artifacts/x86/**
           retention-days: 30
+
+  test:
+    name: Run Tests (x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: [build-windows, build-win32]
+    if: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Generate autocomplete data from YAML
+        run: python scripts/generate_autocomplete.py
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Main Plugin (Debug, x64) - for test linking
+        run: |
+          msbuild "${{ env.PROJECT_FILE }}" `
+            /p:Configuration="Unicode Debug" `
+            /p:Platform="x64" `
+            /p:PlatformToolset=v143 `
+            /p:WindowsTargetPlatformVersion=10.0 `
+            /verbosity:minimal `
+            /maxcpucount
+
+      - name: Build Tests (x64, Debug)
+        run: |
+          msbuild "${{ env.SOLUTION_FILE }}" `
+            /t:nppColdFusionTests `
+            /p:Configuration="Debug" `
+            /p:Platform="x64" `
+            /p:PlatformToolset=v143 `
+            /p:WindowsTargetPlatformVersion=10.0 `
+            /verbosity:minimal `
+            /maxcpucount
+
+      - name: Copy test fixtures to output directory
+        run: |
+          $fixturesSrc = "tests\\fixtures"
+          $fixturesDst = "vs.proj\\x64\\Debug\\Tests\\fixtures"
+          if (Test-Path $fixturesSrc) {
+            Copy-Item -Path $fixturesSrc -Destination $fixturesDst -Recurse -Force
+            Write-Host "Copied fixtures to $fixturesDst"
+            Get-ChildItem $fixturesDst
+          } else {
+            Write-Warning "Fixtures source not found at $fixturesSrc"
+          }
+
+      - name: Run Tests (x64)
+        run: |
+          $testExe = "vs.proj\\x64\\Debug\\Tests\\nppColdFusionTests.exe"
+          if (-not (Test-Path $testExe)) {
+            Write-Error "Test executable not found at $testExe"
+            exit 1
+          }
+          & $testExe
 
   release:
     name: Create GitHub Release
@@ -212,13 +245,43 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nppColdFusion-x64-Release
-          path: dist/${{ github.ref_name }}/x64
+          path: artifacts/x64
 
       - name: Download Win32 artifacts
         uses: actions/download-artifact@v4
         with:
           name: nppColdFusion-Win32-Release
-          path: dist/${{ github.ref_name }}/win32
+          path: artifacts/x86
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nppColdFusion-shared-Release
+          path: artifacts/shared
+
+      - name: Prepare release package (classic structure)
+        run: |
+          mkdir -p release_artifacts/x64 release_artifacts/x86 release_artifacts/shared
+
+          # Architecture-specific DLLs
+          cp artifacts/x64/nppColdFusion.dll release_artifacts/x64/nppColdFusion-x64.dll
+          cp artifacts/x86/nppColdFusion.dll release_artifacts/x86/nppColdFusion-x86.dll
+
+          # Shared XML and INSTALL.txt (identical for both architectures)
+          cp artifacts/shared/nppColdFusion.xml release_artifacts/shared/
+          
+          # INSTALL.txt
+          printf "nppColdFusion ${{ github.ref_name }} - Installation Instructions\n====================================================\n\n1. Create folder: %%ProgramFiles%%\\Notepad++\\plugins\\nppColdFusion\\\n2. Copy nppColdFusion.dll (x64 or x86) AND nppColdFusion.xml from shared/ to that folder\n\nFor Portable Notepad++:\n  Copy nppColdFusion.dll AND nppColdFusion.xml to <Notepad++>\\plugins\\nppColdFusion\\\n\nNote: nppColdFusion.xml must be in the same folder as the DLL.\nIf XML is missing, default colors from the plugin will be used.\n" > release_artifacts/shared/INSTALL.txt
+
+          # SHA256SUMS.txt with all files
+          cd release_artifacts
+          sha256sum x64/nppColdFusion-x64.dll x86/nppColdFusion-x86.dll shared/nppColdFusion.xml > SHA256SUMS.txt
+
+          echo "=== Release package structure ==="
+          find release_artifacts -type f | sort
+          echo ""
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -231,23 +294,18 @@ jobs:
             **Notepad++ ColdFusion/CFML Lexer Plugin** for x64 and x86 (Notepad++ 8+)
 
             ### Installation
-            1. Download the appropriate architecture assets below
-            2. See `INSTALL.txt` in each architecture folder for detailed instructions
+            1. Download the appropriate architecture DLL below
+            2. See `shared/INSTALL.txt` for detailed instructions
 
             ### Changes
             See [CHANGELOG.md](https://github.com/smishchuk/nppcoldfusion/blob/master/CHANGELOG.md)
           draft: false
           prerelease: false
           files: |
-            dist/${{ github.ref_name }}/x64/nppColdFusion.dll
-            dist/${{ github.ref_name }}/x64/nppColdFusion.xml
-            dist/${{ github.ref_name }}/x64/nppColdFusion.db3
-            dist/${{ github.ref_name }}/x64/INSTALL.txt
-            dist/${{ github.ref_name }}/x64/SHA256SUMS.txt
-            dist/${{ github.ref_name }}/win32/nppColdFusion.dll
-            dist/${{ github.ref_name }}/win32/nppColdFusion.xml
-            dist/${{ github.ref_name }}/win32/nppColdFusion.db3
-            dist/${{ github.ref_name }}/win32/INSTALL.txt
-            dist/${{ github.ref_name }}/win32/SHA256SUMS.txt
+            release_artifacts/x64/nppColdFusion-x64.dll
+            release_artifacts/x86/nppColdFusion-x86.dll
+            release_artifacts/shared/nppColdFusion.xml
+            release_artifacts/shared/INSTALL.txt
+            release_artifacts/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
